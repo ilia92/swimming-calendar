@@ -366,10 +366,23 @@ class ApiErr extends Error {
   constructor(status, body) { super(body.message || 'error'); this.status = status; this.code = body.error; this.body = body; }
 }
 
+let pending = 0;
+let busyTimer = null;
+function busy(delta) {
+  pending = Math.max(0, pending + delta);
+  clearTimeout(busyTimer);
+  const bar = document.getElementById('busy');
+  if (pending) busyTimer = setTimeout(() => bar.classList.add('on'), 250);   // quick requests: no flicker
+  else bar.classList.remove('on');
+}
+
 async function api(method, path, body) {
   const opts = { method, headers: {}, credentials: 'same-origin' };
   if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const res = await fetch('/api/v1' + path, opts);
+  const tracked = !path.startsWith('/changes');
+  if (tracked) busy(1);
+  let res;
+  try { res = await fetch('/api/v1' + path, opts); } finally { if (tracked) busy(-1); }
   const ctype = res.headers.get('Content-Type') || '';
   const data = ctype.includes('json') ? await res.json() : await res.text();
   if (!res.ok) {
@@ -467,6 +480,7 @@ function navItems() {
 
 function renderShell() {
   document.title = t('app.title');
+  document.getElementById('offline').textContent = '⚠ ' + t('common.offline');
   document.getElementById('brand-text').textContent = t('app.title');
   for (const b of document.querySelectorAll('#lang-flags button')) b.classList.toggle('active', b.dataset.lang === S.lang);
   const top = document.getElementById('topbar');
@@ -556,6 +570,7 @@ function showLogin() {
   field(t('login.password'), el('input', { name: 'password', type: 'password', autocomplete: 'current-password', required: true })),
   err,
   el('button', { class: 'btn primary', type: 'submit' }, t('login.submit')),
+  el('p', { class: 'muted small', style: 'text-align:center;margin:0' }, t('login.forgot')),
   flagButtons());
   render(el('div', { class: 'login-wrap' }, el('div', { class: 'card login' },
     el('div', { class: 'logo-big' }, '🏊'), el('h1', {}, t('app.title')), form)));
@@ -614,6 +629,35 @@ async function refresh() {
 }
 window.addEventListener('hashchange', () => { S.dirty = false; refresh(); });
 
+function calendarActive() {
+  return S.me && !S.me.must_change_password && S.route.startsWith('calendar') && !D.node.open && !document.getElementById('confirm').open;
+}
+function setMode(m) { S.calMode = m; localSet('calMode2', m); refresh(); }
+document.addEventListener('keydown', (ev) => {
+  if (!calendarActive() || ev.ctrlKey || ev.metaKey || ev.altKey || ev.target.matches('input, textarea, select, [contenteditable]')) return;
+  const k = ev.key.toLowerCase();
+  if (ev.key === 'ArrowLeft') shiftCal(-1);
+  else if (ev.key === 'ArrowRight') shiftCal(1);
+  else if (k === 't') { S.anchor = parseISO(todayISO()); refresh(); }
+  else if (k === 'd') setMode('day');
+  else if (k === 'w' && !narrow()) setMode('week');
+  else if (k === 'm') setMode('month');
+  else return;
+  ev.preventDefault();
+});
+let touch = null;
+document.addEventListener('touchstart', (ev) => {
+  touch = calendarActive() && ev.touches.length === 1 && !ev.target.closest('.combo, input, textarea, select, .tg')
+    ? { x: ev.touches[0].clientX, y: ev.touches[0].clientY, t: Date.now() } : null;
+}, { passive: true });
+document.addEventListener('touchend', (ev) => {
+  if (!touch) return;
+  const dx = ev.changedTouches[0].clientX - touch.x;
+  const dy = ev.changedTouches[0].clientY - touch.y;
+  if (Math.abs(dx) > 70 && Math.abs(dy) < 45 && Date.now() - touch.t < 600) shiftCal(dx < 0 ? 1 : -1);   // swipe = next / previous
+  touch = null;
+}, { passive: true });
+
 let lastNarrow = narrow();
 window.addEventListener('resize', () => {
   if (narrow() !== lastNarrow) { lastNarrow = narrow(); if (S.route.startsWith('calendar')) refresh(); }
@@ -626,6 +670,7 @@ async function liveSync() {
     if (!S.me) { await sleep(3000); continue; }
     try {
       const out = await api('GET', '/changes?since=' + S.rev + '&wait=25');
+      if (S.offline) { S.offline = false; document.getElementById('offline').hidden = true; refreshAll(); }
       if (out.rev !== S.rev) {
         const first = S.rev === 0;
         S.rev = out.rev;
@@ -634,7 +679,10 @@ async function liveSync() {
           else refreshAll();
         }
       }
-    } catch (e) { await sleep(5000); }
+    } catch (e) {
+      if (!(e instanceof ApiErr)) { S.offline = true; document.getElementById('offline').hidden = false; }
+      await sleep(5000);
+    }
   }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1461,6 +1509,7 @@ async function myVisitsPopup() {
   return [
     el('h3', {}, t('nav.visits')),
     creditsBar(out.balance),
+    coachContact(),
     h2(t('visits.upcoming')),
     upcoming.length ? el('ul', { class: 'list' }, upcoming.map((b) => bookingRow(b, true))) : el('p', { class: 'muted' }, t('visits.none_upcoming')),
     h2(t('visits.history')),
@@ -1468,6 +1517,15 @@ async function myVisitsPopup() {
     h2(t('visits.packages')),
     packagesList(out.balance.packages, false),
   ];
+}
+
+function coachContact() {
+  const c = S.coach;
+  if (!c) return null;
+  return el('div', { class: 'coach-contact' }, avatar(c, 40),
+    el('div', { class: 'grow' }, el('div', { class: 'muted small' }, t('coach.yours')), el('strong', {}, c.name)),
+    c.phone ? el('a', { class: 'btn small', href: 'tel:' + c.phone }, '📞 ' + c.phone) : null,
+    c.email ? el('a', { class: 'btn small ghost', href: 'mailto:' + c.email, title: c.email }, '✉️') : null);
 }
 
 function bookingRow(b, withCancel) {
@@ -1518,6 +1576,7 @@ async function accountPopup() {
   return [
     el('h3', {}, me.name, el('span', { class: 'muted' }, ' · ' + me.username)),
     avatarEditor(me),
+    isCoach() ? null : coachContact(),
     form,
     el('details', { class: 'more' }, el('summary', {}, t('account.change_password')), passwordForm()),
     el('div', { class: 'actions' }, btn(t('nav.logout'), logout, 'danger')),
@@ -1638,14 +1697,36 @@ async function viewSwimmers() {
   const [out] = await Promise.all([api('GET', '/swimmers' + (showInactive ? '?include_inactive=1' : '')), loadTemplates()]);
   const search = el('input', { type: 'search', placeholder: t('swimmers.search'), value: localGet('swSearch') || '', class: 'search' });
   const tbody = el('tbody');
+  let filter = localGet('swFilter') || 'all';
+  let sort = localGet('swSort') || 'name';
+  const FILTERS = {
+    all: () => true,
+    low: (s) => s.balance.low && s.balance.total > 0,
+    unpaid: (s) => s.balance.unpaid > 0,
+    nocard: (s) => s.balance.total === 0,
+  };
+  const SORTS = {
+    name: (a, b) => a.name.localeCompare(b.name, locale()),
+    left: (a, b) => a.balance.available - b.balance.available || a.name.localeCompare(b.name, locale()),
+    last: (a, b) => (b.last_visit || '').localeCompare(a.last_visit || ''),
+  };
+  const counts = Object.fromEntries(Object.entries(FILTERS).map(([k, f]) => [k, out.swimmers.filter(f).length]));
+  const filterBar = el('div', { class: 'tabs sw-filters' });
+  const drawFilters = () => filterBar.replaceChildren(...Object.keys(FILTERS).map((k) => el('button', {
+    type: 'button', class: 'btn small' + (filter === k ? ' active' : '') + (k !== 'all' && counts[k] ? ' has-count' : ''),
+    onclick: () => { filter = k; localSet('swFilter', k); drawFilters(); fill(); },
+  }, t('swimmers.f_' + k), k !== 'all' && counts[k] ? el('span', { class: 'count' }, counts[k]) : null)));
+  const sortSel = el('select', { class: 'auto', 'aria-label': t('swimmers.sort'), onchange: (ev) => { sort = ev.target.value; localSet('swSort', sort); fill(); } },
+    Object.keys(SORTS).map((k) => el('option', { value: k, selected: k === sort }, t('swimmers.s_' + k))));
   const fill = () => {
     const q = search.value.trim().toLowerCase();
     localSet('swSearch', search.value);
-    const rows = out.swimmers.filter((s) => !q || (s.name + ' ' + s.username + ' ' + (s.phone || '')).toLowerCase().includes(q));
+    const rows = out.swimmers.filter((s) => (!q || (s.name + ' ' + s.username + ' ' + (s.phone || '') + ' ' + (s.members || []).join(' ')).toLowerCase().includes(q))
+      && (FILTERS[filter] || FILTERS.all)(s)).sort(SORTS[sort] || SORTS.name);
     tbody.replaceChildren(...rows.map((s) => el('tr', { class: 'clickable' + (s.active ? '' : ' inactive'), onclick: () => popup(() => swimmerPopup(s.id)) },
       el('td', {}, el('div', { class: 'who' }, avatar(s, 36), el('div', {}, el('strong', {}, s.name),
         (s.members || []).length ? el('span', { class: 'badge joint', title: s.members.join(', ') }, '👥 ' + s.members.length) : null,
-        el('div', { class: 'muted small' }, s.username + (s.phone ? ' · ' + s.phone : ''))))),
+        el('div', { class: 'muted small' }, s.username, s.phone ? [' · ', el('a', { href: 'tel:' + s.phone, onclick: (ev) => ev.stopPropagation() }, s.phone)] : null)))),
       el('td', { class: 'num show-sm' }, creditsChip({ ...s.balance })),
       el('td', { class: 'num hide-sm' }, s.balance.used),
       el('td', { class: 'num hide-sm' }, s.balance.reserved),
@@ -1657,14 +1738,16 @@ async function viewSwimmers() {
     if (!rows.length) tbody.append(el('tr', {}, el('td', { colspan: 8, class: 'empty' }, t('swimmers.none'))));
   };
   search.addEventListener('input', fill);
+  drawFilters();
   fill();
   render(
     el('div', { class: 'row between' }, el('h1', {}, t('swimmers.title', { n: out.swimmers.filter((s) => s.active).length })),
       btn('+ ' + t('swimmers.new'), () => popup(newSwimmerPopup), 'primary')),
-    el('div', { class: 'row', style: 'margin-bottom:.75rem' }, search,
+    el('div', { class: 'row', style: 'margin-bottom:.4rem' }, search, sortSel,
       el('label', { class: 'check small' }, el('input', {
         type: 'checkbox', checked: showInactive, onchange: (ev) => { localSet('showInactive', ev.target.checked ? '1' : '0'); refresh(); },
       }), t('swimmers.show_inactive'))),
+    filterBar,
     el('div', { class: 'card table-wrap' }, el('table', {},
       el('thead', {}, el('tr', {}, el('th', {}, t('fields.name')), el('th', { class: 'num show-sm' }, t('credits.chip_title')),
         el('th', { class: 'num hide-sm', title: t('swimmers.visited_hint') }, t('swimmers.visited')),
@@ -1953,7 +2036,8 @@ async function statsBody() {
       tile(st.totals.cancelled, t('status.cancelled')),
       tile(st.attendance_rate === null ? '—' : Math.round(st.attendance_rate * 100) + '%', t('stats.attendance_rate')),
       tile(st.sessions_held, t('stats.sessions_held')),
-      tile(st.avg_per_session ?? '—', t('stats.avg_per_session'))),
+      tile(st.avg_per_session ?? '—', t('stats.avg_per_session')),
+      tile(st.occupancy === null || st.occupancy === undefined ? '—' : Math.round(st.occupancy * 100) + '%', t('stats.occupancy'))),
     el('div', { class: 'grid two' },
       el('div', { class: 'card' }, h2(t('stats.by_weekday')),
         el('div', { class: 'bars' }, st.per_weekday.map((n, i) => bar(weekdayName(i), n, maxW, i >= 5 ? 'weekend' : '')))),
@@ -2003,6 +2087,7 @@ async function boot() {
     const out = await api('GET', '/me');
     S.me = out.user;
     S.settings = { ...out.settings, today: out.today };
+    S.coach = out.coach;
     if (S.me.lang && S.me.lang !== S.lang) await loadLang(S.me.lang);
   } catch (e) {
     S.me = null;

@@ -33,12 +33,14 @@
   "back": "Back",
   "search": "Search…",
   "no_matches": "No matches.",
-  "clear": "Clear"
+  "clear": "Clear",
+  "offline": "No connection to the server - retrying…"
  },
  "login": {
   "username": "Username",
   "password": "Password",
-  "submit": "Log in"
+  "submit": "Log in",
+  "forgot": "Forgot your password? Ask your coach."
  },
  "account": {
   "profile": "Details",
@@ -162,7 +164,15 @@
   "planned": "Planned",
   "all": "All",
   "visited_hint": "visits used",
-  "planned_hint": "upcoming bookings"
+  "planned_hint": "upcoming bookings",
+  "f_all": "All",
+  "f_low": "Few visits",
+  "f_unpaid": "Unpaid",
+  "f_nocard": "No card",
+  "sort": "Sort",
+  "s_name": "By name",
+  "s_left": "By visits left",
+  "s_last": "By last visit"
  },
  "schedule": {
   "templates": "Visit card templates",
@@ -214,12 +224,13 @@
   "scope_year": "This year",
   "scope_custom": "Custom",
   "attendance_rate": "Attendance",
-  "sessions_held": "Sessions held",
+  "sessions_held": "Trainings with visits",
   "avg_per_session": "Average per session",
   "by_weekday": "By weekday",
   "by_time": "By time",
   "by_swimmer": "By swimmer",
-  "no_data": "No data for this period."
+  "no_data": "No data for this period.",
+  "occupancy": "Places taken"
  },
  "reports": {
   "title": "Reports",
@@ -438,5 +449,8 @@
   "today": "today",
   "tomorrow": "tomorrow",
   "in_days": "in {n} days"
+ },
+ "coach": {
+  "yours": "Your coach"
  }
 }

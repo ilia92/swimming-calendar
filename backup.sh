@@ -55,6 +55,11 @@ done
 cp "$SRC" "$OUT.part" && mv "$OUT.part" "$OUT" || { echo "$(date -Is) copy failed"; exit 1; }
 echo "$(date -Is) backed up -> $OUT"
 
+# profile photos: keep a mirror next to the snapshots (only new/changed files are copied)
+if [ -d "$DIR/data/avatars" ]; then
+  mkdir -p "$DEST/avatars" && cp -pu "$DIR/data/avatars/"* "$DEST/avatars/" 2>/dev/null || true
+fi
+
 TOTAL="$(find "$DEST" -type f -name '*.json' | wc -l)"
 if [ "$TOTAL" -gt "$KEEP" ]; then
   find "$DEST" -type f -name '*.json' -printf '%T@ %p\n' | sort -n | head -n "$((TOTAL - KEEP))" \

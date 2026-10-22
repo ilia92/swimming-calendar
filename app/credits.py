@@ -15,7 +15,7 @@ are "unpaid" (shown to the coach as debt); adding a package later covers them.
 
 from datetime import date
 
-from . import config, prefs
+from . import prefs
 from .util import local_dt, now as clock_now
 
 CONSUMING = {"attended", "no_show"}

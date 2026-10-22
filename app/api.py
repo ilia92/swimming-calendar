@@ -176,9 +176,19 @@ def me(ctx):
     return {
         "user": public_user(ctx.user, ctx.user),
         "settings": _effective_settings(ctx.user),
+        "coach": _coach_contact(ctx.user),
         "today": today().isoformat(),
         "now": now().replace(microsecond=0).isoformat(),
     }
+
+
+def _coach_contact(user):
+    """Swimmers can see how to reach their coach."""
+    if user["role"] != "swimmer":
+        return None
+    with store.LOCK:
+        c = store.current()["users"].get(user.get("coach_id"))
+    return {k: c.get(k) for k in ("id", "name", "phone", "email", "avatar")} if c else None
 
 
 def _effective_settings(user):
@@ -492,7 +502,9 @@ def _avatar_file(uid):
 
 
 def _can_see_avatar(viewer, u):
-    return (u["id"] == viewer["id"] or _can_edit_user(viewer, u) or auth.is_coach(viewer)
+    """Yourself, your own swimmers (or everyone for admins), fellow coaches, and a swimmer's own coach."""
+    return (u["id"] == viewer["id"] or _can_edit_user(viewer, u)
+            or (auth.is_coach(viewer) and u["role"] == "coach")
             or u["id"] == viewer.get("coach_id"))
 
 
@@ -1334,6 +1346,7 @@ def stats(ctx):
     with store.LOCK:
         d = store.current()
         per_swimmer, per_day, per_weekday, per_time = {}, {}, [0] * 7, {}
+        attended_keys = set()
         totals = {st: 0 for st in credits.STATUSES}
         for b in _scoped_bookings(d, ctx.user, start, end, ctx.q("swimmer_id"), ctx.q("coach_id")):
             st = credits.effective_status(b, n)
@@ -1343,18 +1356,24 @@ def stats(ctx):
                                                            **{s: 0 for s in credits.STATUSES}})
             row[st] += 1
             if st == "attended":
+                attended_keys.add(b["session_key"])
                 per_day[b["date"]] = per_day.get(b["date"], 0) + 1
                 per_weekday[date.fromisoformat(b["date"]).weekday()] += 1
                 per_time[b["start"]] = per_time.get(b["start"], 0) + 1
         sessions = schedule.occurrences(d, start, min(end, today()), _scope_for_query(ctx.user, ctx.q("coach_id"))) \
             if auth.is_coach(ctx.user) else []
-    held = [s for s in sessions if not s["cancelled"] and schedule.session_start(s) <= n]
+    # empty 45-min slots are offers, not trainings: "held" = someone actually came
+    offered = [s for s in sessions if not s["cancelled"] and schedule.session_start(s) <= n]
+    held = [s for s in offered if s["key"] in attended_keys]
+    places = sum(s["capacity"] for s in offered)
     came = totals["attended"] + totals["no_show"]
     return {
         "from": start.isoformat(), "to": end.isoformat(),
         "totals": totals,
         "attendance_rate": round(totals["attended"] / came, 3) if came else None,
         "sessions_held": len(held),
+        "slots_offered": len(offered),
+        "occupancy": round(totals["attended"] / places, 3) if places else None,
         "avg_per_session": round(totals["attended"] / len(held), 2) if held else None,
         "per_swimmer": sorted(per_swimmer.values(), key=lambda r: (-r["attended"], r["name"])),
         "per_day": dict(sorted(per_day.items())),

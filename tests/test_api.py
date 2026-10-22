@@ -13,7 +13,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import api, auth, config, reports, store, util, web  # noqa: E402
@@ -358,6 +358,7 @@ class ApiTest(unittest.TestCase):
         self.coach.ok("DELETE", "/users/%s/avatar" % a.id)
         self.assertEqual(self.coach.call("GET", "/users/%s/avatar" % a.id)[0], 404)
         self.assertIn("2026-12-24", a.ok("GET", "/holidays?from=2026-12-01&to=2026-12-31")["holidays"])
+        self.assertEqual(a.ok("GET", "/me")["coach"]["name"], "Coach One")   # swimmers see whom to contact
 
     def test_delete_only_empty_and_cancel_is_visible(self):
         slot = self.make_slot(capacity=4)
@@ -473,6 +474,7 @@ class ApiTest(unittest.TestCase):
         st = self.coach.ok("GET", "/stats?from=2026-10-01&to=2026-10-31")
         self.assertEqual((st["totals"]["attended"], st["totals"]["no_show"]), (1, 1))
         self.assertEqual(st["attendance_rate"], 0.5)
+        self.assertEqual((st["sessions_held"], st["avg_per_session"]), (1, 1.0))   # empty slots are not "held"
         csv_text = self.coach.ok("GET", "/export.csv?from=2026-10-01&to=2026-10-31", raw=True)
         self.assertIn("Анна", csv_text)
 

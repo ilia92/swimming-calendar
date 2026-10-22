@@ -19,7 +19,10 @@ report is written to disk as a fallback that doesn't depend on the web app.
   holidays are shown in red.
 - Month cells list each slot's fill on desktop. The week view shows the attendees'
   avatars on each slot. The day view expands every slot in place, with no popups.
-- Changes appear live for everyone, through long-polling.
+- Changes appear live for everyone, through long-polling. A notice appears if the server
+  can't be reached, and the page reconnects on its own.
+- On a phone, swipe left/right to change the day or month. On desktop, use the keyboard:
+  ← → navigate, **T** today, **D / W / M** for day / week / month.
 
 **Coach**
 - **Availability:** "Mon–Fri 07:00–12:00" is split automatically into slots. "+ Слот"
@@ -46,7 +49,10 @@ report is written to disk as a fallback that doesn't depend on the web app.
   - default slot length and places
   - whether swimmers may book themselves
   - auto-cancel on public holidays
-- Statistics, CSV export, daily reports and a change log.
+- The swimmers list has filters (few visits, unpaid, no card) and sorting, plus tap-to-call
+  phone numbers.
+- Statistics (attendance, trainings that had visitors, places taken), CSV export, daily
+  reports and a change log.
 - An admin coach can create other coaches.
 
 **Swimmer**
@@ -55,6 +61,8 @@ report is written to disk as a fallback that doesn't depend on the web app.
 - Sees trainings the coach cancelled, and their visit history.
 - Can write a note on each visit ("10 min late"). The coach can write one back
   ("great pace today").
+- Taps a free time in the month view to book it in one tap, with undo in the toast, and
+  sees the next training and their coach's contact details.
 
 ## How visits are counted
 
@@ -79,7 +87,7 @@ sudo cp swimming-calendar.service /etc/systemd/system/   # adjust paths/user ins
 sudo systemctl daemon-reload && sudo systemctl enable --now swimming-calendar
 ```
 
-Hourly backups of `data/data.json`:
+Hourly backups of `data/data.json`, plus a mirror of the profile photos:
 
 ```bash
 crontab -e
