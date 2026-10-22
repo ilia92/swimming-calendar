@@ -203,7 +203,7 @@ def _effective_settings(user):
 def get_coach_settings(ctx):
     auth.require_coach(ctx.user)
     return {"settings": _effective_settings(ctx.user), "limits": {
-        k: (list(v) if isinstance(v, tuple) else "bool") for k, v in prefs.COACH_SETTINGS.items()},
+        k: (list(v) if isinstance(v, tuple) else "bool" if v is bool else v) for k, v in prefs.COACH_SETTINGS.items()},
         "max_capacity": config.CONFIG["max_capacity"]}
 
 
@@ -220,6 +220,18 @@ def put_coach_settings(ctx):
                 continue
             if rule is bool:
                 val = bool(ctx.b(k))
+            elif rule == "time":
+                val = parse_time(ctx.b(k), k)
+            elif rule == "emails":
+                val = clean_str(ctx.b(k), k, 300)
+                bad = [x for x in re.split(r"[\s,;]+", val) if x and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", x)]
+                if bad:
+                    raise ApiError(400, "invalid_email", "not an e-mail address: " + bad[0], field=k)
+            elif rule == "attach":
+                val = ctx.b(k)
+                if not isinstance(val, list) or any(x not in prefs.ATTACH_KINDS for x in val):
+                    raise ApiError(400, "invalid_field", "unknown attachment", field=k)
+                val = [x for x in prefs.ATTACH_KINDS if x in val]
             else:
                 lo, hi = rule
                 val = parse_int(ctx.b(k), k, lo, hi if hi is not None else config.CONFIG["max_capacity"])
@@ -1792,7 +1804,13 @@ def export_csv(ctx):
 @route("GET", "/reports")
 def list_reports(ctx):
     auth.require_coach(ctx.user)
-    return {"reports": reports.list_reports(None if auth.is_admin(ctx.user) else ctx.user)}
+    with store.LOCK:
+        d = store.current()
+        status = (d["meta"].get("report_mail") or {}).get(ctx.user["id"])
+        p = prefs.for_coach(d, ctx.user["id"])
+    return {"reports": reports.list_reports(None if auth.is_admin(ctx.user) else ctx.user),
+            "mail_configured": reports.mail_configured(), "mail_status": status,
+            "recipients": reports.report_recipients(ctx.user, p), "report_time": p["report_time"]}
 
 
 REPORT_TYPES = {"json": ".json", "txt": ".txt", "visits": "_visits.csv", "balances": "_balances.csv"}
@@ -1825,8 +1843,13 @@ def run_report(ctx):
     day = parse_date(ctx.b("date"), "date") if ctx.b("date") else today()
     if day > today():
         raise ApiError(400, "invalid_field", "cannot report the future", field="date")
-    paths = reports.run_daily(day)
-    return {"ok": True, "files": len(paths)}
+    email = _bool(ctx.b("email"))
+    if email and not reports.mail_configured():
+        raise ApiError(409, "mail_not_configured", "e-mail is not set up on the server")
+    paths = reports.run_daily(day, coach_ids=[ctx.user["id"]], email=email)   # manual run: e-mail only when asked
+    with store.LOCK:
+        status = (store.current()["meta"].get("report_mail") or {}).get(ctx.user["id"]) if email else None
+    return {"ok": True, "files": len(paths), "mail_status": status}
 
 
 @route("GET", "/audit")

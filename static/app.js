@@ -2187,8 +2187,7 @@ async function statsBody() {
   return [
     el('div', { class: 'row', style: 'margin-bottom:.5rem' },
       tabs(['month', 'last_month', 'last30', 'year', 'custom'].map((sc) => [sc, t('stats.scope_' + sc)]), scope, (sc) => { localSet('statsScope', sc); refresh(); }),
-      custom, el('span', { class: 'spacer' }),
-      el('a', { class: 'btn small', href: '/api/v1/export.csv' + qs, download: '' }, '⬇ ' + t('stats.export'))),
+      custom),
     el('p', { class: 'muted small' }, fmtDate(iso(from)) + ' – ' + fmtDate(iso(to))),
     el('div', { class: 'tiles' },
       tile(st.totals.attended, t('status.attended')),
@@ -2214,6 +2213,40 @@ async function statsBody() {
   ];
 }
 
+/** Daily report: when it is made, and whether / to whom / with what it is e-mailed. */
+async function autoReportCard(rep) {
+  const v = (await api('GET', '/me/settings')).settings;
+  const save = (body) => act(async () => { Object.assign(S.settings, (await api('PUT', '/me/settings', body)).settings); }, t('common.saved'));
+  const time = timePicker('report_time', v.report_time, 5);
+  time.querySelector('input[type=hidden]').addEventListener('change', (ev) => save({ report_time: ev.target.value }));
+  const kinds = [['txt', t('reports.a_txt')], ['visits', t('reports.visits_csv')], ['balances', t('reports.balances_csv')], ['json', t('reports.a_json')]];
+  const attach = new Set(v.report_attach);
+  const st = rep.mail_status;
+  const statusLine = st ? el('div', { class: 'small ' + (st.ok ? 'ok-text' : 'warn-text') },
+    (st.ok ? '✓ ' : '⚠ ') + t(st.ok ? 'reports.mail_ok' : 'reports.mail_fail', { at: fmtTs(st.at), day: fmtShort(st.day) }),
+    st.ok ? '' : ' — ' + st.results.filter((r) => !r.ok).map((r) => (r.to ? r.to + ': ' : '') + r.log).join('; ').slice(0, 220)) : null;
+  return el('div', { class: 'card auto-report' },
+    el('div', { class: 'row between' }, h2('⏰ ' + t('reports.auto')), el('div', { class: 'auto-time' }, el('span', { class: 'muted small' }, t('reports.every_day')), time)),
+    el('p', { class: 'muted small' }, t('reports.auto_hint')),
+    rep.mail_configured ? null : el('p', { class: 'notice' }, t('reports.mail_off')),
+    el('label', { class: 'rule check' }, el('div', { class: 'grow' }, el('strong', {}, '✉️ ' + t('reports.send_mail')),
+      el('div', { class: 'muted small' }, rep.recipients.length ? t('reports.to', { list: rep.recipients.join(', ') }) : t('reports.no_address'))),
+    el('input', { type: 'checkbox', class: 'switch', checked: v.report_email, disabled: !rep.mail_configured, onchange: (ev) => save({ report_email: ev.target.checked }) })),
+    el('div', { class: v.report_email ? 'mail-opts' : 'mail-opts dim' },
+      field(t('reports.recipients'), el('input', {
+        value: v.report_to, placeholder: S.me.email || t('reports.recipients_ph'),
+        onchange: (ev) => save({ report_to: ev.target.value }),
+      })),
+      el('div', { class: 'field' }, el('span', {}, t('reports.include')), el('div', { class: 'member-picks' }, kinds.map(([k, label]) =>
+        el('label', { class: 'member-pick' }, el('input', {
+          type: 'checkbox', value: k, checked: attach.has(k),
+          onchange: (ev) => { if (ev.target.checked) attach.add(k); else attach.delete(k); save({ report_attach: [...attach] }); },
+        }), el('span', {}, label))))),
+      el('div', { class: 'row' }, el('span', { class: 'grow' }, statusLine),
+        btn('✉️ ' + t('reports.send_now'), () => act(() => api('POST', '/reports/run', { email: true }),
+          (r) => (r.mail_status && r.mail_status.ok ? t('reports.sent_now') : t('reports.send_failed'))), 'small' + (rep.mail_configured ? '' : ' hidden')))));
+}
+
 async function reportsBody() {
   const rep = await api('GET', '/reports');
   const ids = {};
@@ -2221,6 +2254,7 @@ async function reportsBody() {
   const q = (r) => (r.coach === S.me.username ? '' : '?coach_id=' + encodeURIComponent(ids[r.coach] || ''));
   const link = (r, kind, label) => el('a', { class: 'btn small', href: '/api/v1/reports/' + r.date + '/' + kind + q(r), target: '_blank', rel: 'noopener' }, label);
   return [
+    await autoReportCard(rep),
     el('div', { class: 'row between' }, el('p', { class: 'muted grow' }, t('reports.hint')),
       btn(t('reports.run_now'), () => act(() => api('POST', '/reports/run', {}), t('reports.generated')), 'primary')),
     el('div', { class: 'card' }, rep.reports.length ? el('ul', { class: 'list' }, rep.reports.slice(0, 60).map((r) => el('li', {},

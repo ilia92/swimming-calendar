@@ -597,13 +597,53 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(statuses, {"attended", "no_show"})
 
     def test_report_catchup_dates(self):
+        cid = self.coach_id
+        self.coach.ok("PUT", "/me/settings", {"report_time": "21:30"})
         util.set_now(datetime(2026, 10, 21, 22, 0, tzinfo=config.tz()))
-        self.assertEqual([d.isoformat() for d in reports.due_dates()], ["2026-10-21"])
+        self.assertEqual([d.isoformat() for d in reports.due_dates(cid)], ["2026-10-21"])
         reports.run_daily(datetime(2026, 10, 21).date())
         util.set_now(datetime(2026, 10, 22, 12, 0, tzinfo=config.tz()))   # manual run before report_time
         reports.run_daily(datetime(2026, 10, 22).date())
         util.set_now(datetime(2026, 10, 24, 9, 0, tzinfo=config.tz()))   # server was down for two days
-        self.assertEqual([d.isoformat() for d in reports.due_dates()], ["2026-10-22", "2026-10-23"])
+        self.assertEqual([d.isoformat() for d in reports.due_dates(cid)], ["2026-10-22", "2026-10-23"])
+        # each coach has their own time: at 22:00 a 23:00 coach is not due yet
+        self.coach.ok("PUT", "/me/settings", {"report_time": "23:00"})
+        util.set_now(datetime(2026, 10, 24, 22, 0, tzinfo=config.tz()))
+        self.assertEqual([d.isoformat() for d in reports.due_dates(cid)][-1], "2026-10-23")
+
+    def test_report_email_settings(self):
+        self.assertEqual(self.coach.call("PUT", "/me/settings", {"report_to": "not-an-email"})[1]["error"], "invalid_email")
+        self.assertEqual(self.coach.call("PUT", "/me/settings", {"report_attach": ["pdf"]})[1]["error"], "invalid_field")
+        out = self.coach.ok("PUT", "/me/settings", {"report_email": True, "report_to": "a@b.bg, c@d.com",
+                                                    "report_attach": ["visits", "txt"], "report_time": "23:15"})["settings"]
+        self.assertEqual((out["report_attach"], out["report_time"]), (["txt", "visits"], "23:15"))
+        rep = self.coach.ok("GET", "/reports")
+        self.assertEqual((rep["recipients"], rep["mail_configured"]), (["a@b.bg", "c@d.com"], False))
+        self.assertEqual(self.coach.call("POST", "/reports/run", {"email": True})[1]["error"], "mail_not_configured")
+        # with a sender configured, the mail goes out through the notifier (mailer stubbed here)
+        from app import mailer
+        sent = []
+
+        class FakeMailer:
+            last_log = ["mx: accepted"]
+
+            def __init__(self, *a, **k):
+                pass
+
+            def send(self, to, subject, text, html=None, attachments=()):
+                sent.append((to, subject, [f[0] for f in attachments]))
+                return True
+        real = mailer.DirectMailer
+        mailer.DirectMailer = FakeMailer
+        config.CONFIG["mail_sender"] = "Test <noreply@example.com>"
+        try:
+            res = self.coach.ok("POST", "/reports/run", {"email": True})
+        finally:
+            mailer.DirectMailer = real
+            config.CONFIG["mail_sender"] = ""
+        self.assertTrue(res["mail_status"]["ok"])
+        self.assertEqual([s[0] for s in sent], ["a@b.bg", "c@d.com"])
+        self.assertTrue(sent[0][2][0].endswith("_visits.csv"))
 
     def test_json_content_type_required(self):
         req = urllib.request.Request(self.base + "/api/v1/login", data=b"username=coach&password=x", method="POST")

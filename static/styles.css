@@ -990,3 +990,8 @@ dialog .dp-wrap .combo-popup { position: static; width: 100%; max-width: 320px; 
 .card-btns { display: inline-flex; align-items: center; gap: .15rem; }
 .excuse-btn { color: var(--warn); font-weight: 600; }
 dialog .form.cols:has(.dp-wrap) { align-items: start; }
+.auto-report h2 { margin: 0; }
+.auto-time { display: flex; align-items: center; gap: .5rem; }
+.auto-time .tp { width: 9rem; }
+.mail-opts { display: grid; gap: .6rem; margin-top: .6rem; }
+.mail-opts.dim { opacity: .55; }

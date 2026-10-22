@@ -3,7 +3,7 @@
   "port": 8870,
   "timezone": "Europe/Sofia",
   "default_lang": "bg",
-  "report_time": "21:30",
+  "report_time": "23:00",
   "cancel_cutoff_hours": 12,
   "booking_horizon_days": 28,
   "default_slot_minutes": 45,
@@ -26,5 +26,7 @@
       "from": "",
       "starttls": true
     }
-  }
+  },
+  "mail_sender": "",
+  "mail_helo": ""
 }

@@ -19,7 +19,7 @@ import re
 import threading
 from datetime import date, timedelta
 
-from . import config, credits, schedule, store
+from . import config, credits, prefs, schedule, store
 from .i18n import strings
 from .util import local_dt, now as clock_now
 
@@ -176,68 +176,99 @@ class FileNotifier:
         return paths
 
 
+ATTACH = {"txt": (".txt", "text", "plain"), "visits": ("_visits.csv", "text", "csv"),
+          "balances": ("_balances.csv", "text", "csv"), "json": (".json", "application", "json")}
+
+
+def mail_configured():
+    return bool(config.CONFIG.get("mail_sender"))
+
+
+def report_recipients(coach, p):
+    raw = p.get("report_to") or coach.get("email") or ""
+    return [x for x in re.split(r"[\s,;]+", raw) if "@" in x]
+
+
 class EmailNotifier:
-    """Placeholder: enable in config once e-mail delivery is wanted."""
+    """Sends the coach's daily report straight to the recipients' mail servers (app/mailer.py)."""
     name = "email"
 
-    def __init__(self, settings):
-        self.settings = settings
+    def deliver(self, report, rendered, coach, day, p):
+        from .mailer import DirectMailer
+        to = report_recipients(coach, p)
+        if not to:
+            raise RuntimeError("no e-mail address for the report")
+        attach = p.get("report_attach") or ["txt", "visits", "balances"]
+        files = []
+        for k in attach:
+            if k in ATTACH and k != "txt":
+                suffix, main, sub = ATTACH[k]
+                files.append((file_base(day, coach) + suffix, rendered[suffix].encode("utf-8"), main, sub))
+        lang = coach.get("lang") or config.CONFIG["default_lang"]
+        title = "%s %s - %s" % ("Дневен отчет" if lang == "bg" else "Daily report", day.strftime("%d.%m.%Y"), coach["name"])
+        body = rendered[".txt"] if "txt" in attach else title + "\n"
+        mailer = DirectMailer(config.CONFIG["mail_sender"], helo=config.CONFIG.get("mail_helo") or None)
+        results = []
+        for rcpt in to:
+            ok = mailer.send(rcpt, title, body, attachments=files)
+            results.append({"to": rcpt, "ok": ok, "log": mailer.last_log[-1] if mailer.last_log else ""})
+        return results
 
-    def deliver(self, report, rendered, coach, day):
-        log.warning("email notifier is enabled but not implemented yet - skipped")
-        return []
+
+def _coaches(d, coach_ids=None):
+    return [u for u in d["users"].values() if u["role"] == "coach" and u.get("active", True)
+            and (coach_ids is None or u["id"] in coach_ids)]
 
 
-def notifiers():
-    cfg = config.CONFIG["notifiers"]
-    out = []
-    if cfg.get("file", {}).get("enabled", True):
-        out.append(FileNotifier())
-    if cfg.get("email", {}).get("enabled"):
-        out.append(EmailNotifier(cfg["email"]))
-    return out
+def run_daily(day, now=None, coach_ids=None, email=None):
+    """Finalize past bookings, then build, save and (optionally) e-mail the report of `day`.
 
-
-def run_daily(day, now=None):
-    """Finalize past bookings, then build and deliver the report of `day` for every coach."""
+    email=None follows each coach's setting, True/False forces it (the "send now" button)."""
     now = now or clock_now()
-
-    def finalize(d):
-        credits.finalize_past(d, now)
     with store.LOCK:
         if credits.pending_finalize(store.current(), now):
-            store.mutate(finalize)
+            store.mutate(lambda d: credits.finalize_past(d, now))
         d = store.current()
-        coaches = [u for u in d["users"].values() if u["role"] == "coach" and u.get("active", True)]
-        jobs = [(c, build(d, c, day, now)) for c in coaches]
+        jobs = [(c, prefs.for_coach(d, c["id"]), build(d, c, day, now)) for c in _coaches(d, coach_ids)]
 
-    paths = []
-    for coach, report in jobs:
+    paths, mail_status = [], {}
+    for coach, p, report in jobs:
         rendered = render(report, coach.get("lang") or config.CONFIG["default_lang"])
-        for n in notifiers():
+        if config.CONFIG["notifiers"].get("file", {}).get("enabled", True):
             try:
-                paths += n.deliver(report, rendered, coach, day)
+                paths += FileNotifier().deliver(report, rendered, coach, day)
             except Exception:
-                log.exception("notifier %s failed for %s %s", n.name, coach["username"], day)
+                log.exception("saving the report failed for %s %s", coach["username"], day)
+        if (p["report_email"] if email is None else email) and mail_configured():
+            try:
+                res = EmailNotifier().deliver(report, rendered, coach, day, p)
+                mail_status[coach["id"]] = {"at": now.replace(microsecond=0).isoformat(), "day": day.isoformat(),
+                                            "ok": all(r["ok"] for r in res), "results": res}
+            except Exception as e:
+                log.exception("e-mailing the report failed for %s %s", coach["username"], day)
+                mail_status[coach["id"]] = {"at": now.replace(microsecond=0).isoformat(), "day": day.isoformat(),
+                                            "ok": False, "results": [{"to": "", "ok": False, "log": str(e)}]}
 
-    # A manual run before report_time must not stop the scheduled run from writing the
-    # final version of that day later on.
-    if now >= local_dt(day, config.CONFIG["report_time"]):
-        def mark(d):
-            last = d["meta"].get("last_report_date")
-            if not last or last < day.isoformat():
-                d["meta"]["last_report_date"] = day.isoformat()
-        store.mutate(mark)
+    def mark(d):
+        last = d["meta"].setdefault("last_report", {})
+        for coach, p, _ in jobs:
+            # a manual run before the coach's time must not stop the scheduled run later that day
+            if now >= local_dt(day, p["report_time"]) and (last.get(coach["id"]) or "") < day.isoformat():
+                last[coach["id"]] = day.isoformat()
+        d["meta"].setdefault("report_mail", {}).update(mail_status)
+    store.mutate(mark)
     return paths
 
 
-def due_dates(now=None):
-    """Report dates that should exist by now but have not been produced yet."""
+def due_dates(coach_id, now=None):
+    """Report dates of one coach that should exist by now but have not been produced yet."""
     now = now or clock_now()
-    h, m = map(int, config.CONFIG["report_time"].split(":"))
-    target = now.date() if (now.hour, now.minute) >= (h, m) else now.date() - timedelta(days=1)
     with store.LOCK:
-        last = store.current()["meta"].get("last_report_date")
+        d = store.current()
+        h, m = map(int, prefs.for_coach(d, coach_id)["report_time"].split(":"))
+        meta = d["meta"]
+        last = (meta.get("last_report") or {}).get(coach_id) or meta.get("last_report_date")
+    target = now.date() if (now.hour, now.minute) >= (h, m) else now.date() - timedelta(days=1)
     if not last:
         return [target]
     start = max(date.fromisoformat(last) + timedelta(days=1),
@@ -283,9 +314,12 @@ class Scheduler(threading.Thread):
         with store.LOCK:
             if credits.pending_finalize(store.current(), now):
                 store.mutate(lambda d: credits.finalize_past(d, now))
-        for day in due_dates(now):
-            paths = run_daily(day, now)
-            log.info("daily report %s: %d file(s)", day, len(paths))
+        with store.LOCK:
+            coach_ids = [c["id"] for c in _coaches(store.current())]
+        for cid in coach_ids:
+            for day in due_dates(cid, now):
+                paths = run_daily(day, now, coach_ids=[cid])
+                log.info("daily report %s for %s: %d file(s)", day, cid, len(paths))
 
     def run(self):
         while not self.stop_event.is_set():

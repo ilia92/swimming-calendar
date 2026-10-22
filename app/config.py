@@ -15,7 +15,9 @@ DEFAULTS = {
     "default_lang": "bg",
     "data_dir": "data",
     "report_dir": "reports",
-    "report_time": "21:30",          # daily report, local time
+    "report_time": "23:00",          # default time of the daily report (each coach can change it)
+    "mail_sender": "",               # e.g. "Плувен календар <noreply@ka6ta.eu>" - empty = no e-mail
+    "mail_helo": "",                 # a hostname that resolves to this server's public IP, e.g. "ka6ta.eu"
     "report_catchup_days": 31,       # how far back missed reports are regenerated
     "cancel_cutoff_hours": 12,       # swimmers may cancel up to this many hours before start
     "booking_horizon_days": 28,      # swimmers may book this far ahead

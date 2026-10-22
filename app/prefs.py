@@ -12,7 +12,12 @@ COACH_SETTINGS = {
     "default_capacity": (1, None),      # upper bound is config max_capacity
     "swimmers_can_book": bool,
     "skip_holidays": bool,
+    "report_time": "time",              # when the daily report is made (and e-mailed)
+    "report_email": bool,
+    "report_to": "emails",              # empty = the coach's own e-mail
+    "report_attach": "attach",          # subset of txt / visits / balances / json
 }
+ATTACH_KINDS = ("txt", "visits", "balances", "json")
 
 
 def defaults():
@@ -25,6 +30,10 @@ def defaults():
         "default_capacity": c["max_capacity"],
         "swimmers_can_book": True,
         "skip_holidays": True,
+        "report_time": c["report_time"],
+        "report_email": False,
+        "report_to": "",
+        "report_attach": ["txt", "visits", "balances"],
     }
 
 

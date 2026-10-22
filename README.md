@@ -146,7 +146,8 @@ coach can override them in the app.
 | `port`, `host` | 8870, 0.0.0.0 | |
 | `timezone` | Europe/Sofia | |
 | `default_lang` | bg | |
-| `report_time` | 21:30 | daily report time |
+| `report_time` | 23:00 | default daily report time (each coach sets their own under Statistics → Reports) |
+| `mail_sender`, `mail_helo` | empty | e.g. `Плувен календар <noreply@ka6ta.eu>` and `ka6ta.eu`. Empty = no e-mail |
 | `max_capacity` | 8 | hard maximum of swimmers per slot |
 | `max_members` | 3 | people on a joint account |
 | `cancel_cutoff_hours`, `booking_horizon_days`, `low_credit_threshold`, `default_slot_minutes` | 12, 28, 2, 45 | defaults for each coach's rules |
@@ -165,8 +166,23 @@ reports/YYYY/MM/YYYY-MM-DD_<coach>_balances.csv   visits left for every swimmer
 reports/YYYY/MM/YYYY-MM-DD_<coach>.json           full snapshot
 ```
 
-If the server was down, the missing days are written when it starts again. Only the file
-notifier exists today. E-mail delivery has a placeholder in `app/reports.py` and the config.
+If the server was down, the missing days are written when it starts again.
+
+Each coach sets **when** the report is made, and whether it is **e-mailed**, in Statistics →
+Reports → "Автоматичен отчет". They also choose the recipients (default: their profile
+e-mail) and what to include: the summary in the body, plus the visits CSV, cards CSV or full
+JSON as attachments. "Изпрати сега" sends today's report as a test, and the panel shows the
+result of the last send.
+
+E-mail is delivered **directly** to the recipients' mail servers (`app/mailer.py`). No mail
+provider and no open ports are needed, only outgoing port 25 and DNS that vouches for this
+server:
+- an **SPF** record on the sender domain that allows this server's public IP, e.g.
+  `ka6ta.eu TXT "v=spf1 ip4:151.237.99.227 ~all"`
+- `mail_helo` set to a hostname that resolves to that IP. Some servers, e.g. mail.bg, reject
+  anything else.
+
+Without DKIM, mail from a home IP may land in spam at first.
 
 ## Files
 
