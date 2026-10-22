@@ -363,7 +363,8 @@
   "confirm_no_show": "Are you sure? {name} will be marked as a no-show - this uses up 1 visit from the card.",
   "note_label": "📢 Training note (swimmers see it)",
   "note_ph": "e.g. “Today at the Spartak pool, lane 3”",
-  "note_banner": "Messages from your coach:"
+  "note_banner": "Messages from your coach:",
+  "book_hint_many": "Uses {n} visits ({left} left). You can cancel up to {h}h before the start."
  },
  "swimmer": {
   "overview": "Overview",

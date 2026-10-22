@@ -1062,7 +1062,8 @@ async function dayAgenda(r, data) {
   return el('div', { class: 'day-mode' },
     dayStrip(days, data),
     hol ? el('p', { class: 'notice info' }, '🎉 ' + hol[S.lang]) : null,   // the date itself is already in the toolbar
-    !isCoach() && panels.length ? el('p', { class: 'muted small' }, t('session.book_hint', { h: S.settings.cancel_cutoff_hours, left: S.balance ? S.balance.available : '?' })) : null,
+    // joint accounts get a live count on every slot instead
+    !isCoach() && panels.length && !(S.me.members || []).length ? el('p', { class: 'muted small' }, bookHint(1)) : null,
     panels.length ? el('div', { class: 'agenda' }, panels) : el('div', { class: 'card empty' }, t('sessions.none_day')),
     isCoach() ? el('div', { class: 'actions' }, btn('+ ' + t('slot.create'), () => popup(() => createSlotPopup(ds, '17:00')), 'primary')) : null);
 }
@@ -1087,17 +1088,27 @@ function swimmerSessionBody(s, inline) {
     const members = s.free_members || [];
     const picks = members.slice(0, s.free).map((m) => el('label', { class: 'member-pick' },
       el('input', { type: 'checkbox', value: m, checked: true }), el('span', {}, m)));
-    if (!inline) out.push(el('p', { class: 'muted small' }, t('session.book_hint', { h: S.settings.cancel_cutoff_hours, left: S.balance ? S.balance.available : '?' })));
-    out.push(el('div', { class: 'book-row' },
-      picks.length ? el('div', { class: 'member-picks' }, picks) : null,
-      btn(t('book.book'), async () => {
+    const hint = el('p', { class: 'muted small book-hint' });
+    const bookBtn = btn(t('book.book'), async () => {
         const body = { session_key: s.key };
         if (members.length) {
           body.members = picks.map((p) => p.querySelector('input')).filter((c) => c.checked).map((c) => c.value);
           if (!body.members.length) { toast(t('errors.pick_members'), 'error'); return; }
         }
         act(() => api('POST', '/bookings', body), t('book.booked'));
-      }, 'primary')));
+      }, 'primary');
+    // one visit per person: keep the hint and the button in step with the ticked members
+    const update = () => {
+      const n = members.length ? picks.filter((p) => p.querySelector('input').checked).length : 1;
+      hint.replaceChildren(bookHint(n));
+      hint.classList.toggle('warn-text', !!S.balance && n > S.balance.available);
+      bookBtn.textContent = t('book.book') + (members.length && n !== 1 ? ' (' + n + ')' : '');
+      bookBtn.disabled = members.length > 0 && n === 0;
+    };
+    picks.forEach((p) => p.querySelector('input').addEventListener('change', update));
+    update();
+    if (!inline || members.length) out.push(hint);
+    out.push(el('div', { class: 'book-row' }, picks.length ? el('div', { class: 'member-picks' }, picks) : null, bookBtn));
   } else if (!own.length && !s.cancelled) {
     out.push(el('p', { class: 'muted small' }, s.started ? t('session.past') : s.free === 0 ? t('sessions.full') : t('errors.too_far')));
   }
@@ -1118,6 +1129,11 @@ function visitNotes(b, opts = {}) {
     b.note ? el('div', { class: 'visit-note coach' }, '📝 ', el('span', {}, b.note), opts.who ? el('span', { class: 'muted' }, ' — ' + t('notes.from_coach')) : null) : null,
     b.swimmer_note ? el('div', { class: 'visit-note swimmer' }, '✉️ ', el('span', {}, b.swimmer_note), opts.who ? el('span', { class: 'muted' }, ' — ' + t('notes.from_swimmer')) : null) : null,
   ];
+}
+
+function bookHint(n) {
+  const left = S.balance ? S.balance.available : '?';
+  return t(n === 1 ? 'session.book_hint' : 'session.book_hint_many', { n, left, h: S.settings.cancel_cutoff_hours });
 }
 
 /** Which members of a joint account are coming (checkboxes, all free ones pre-ticked). */
