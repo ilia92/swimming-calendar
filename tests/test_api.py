@@ -643,7 +643,8 @@ class ApiTest(unittest.TestCase):
             config.CONFIG["mail_sender"] = ""
         self.assertTrue(res["mail_status"]["ok"])
         self.assertEqual([s[0] for s in sent], ["a@b.bg", "c@d.com"])
-        self.assertTrue(sent[0][2][0].endswith("_visits.csv"))
+        self.assertEqual(len(sent[0][2]), 1)
+        self.assertTrue(sent[0][2][0].endswith(".zip"))          # visits CSV inside one ZIP
 
     def test_json_content_type_required(self):
         req = urllib.request.Request(self.base + "/api/v1/login", data=b"username=coach&password=x", method="POST")

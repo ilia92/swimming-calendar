@@ -171,7 +171,8 @@ If the server was down, the missing days are written when it starts again.
 Each coach sets **when** the report is made, and whether it is **e-mailed**, in Statistics →
 Reports → "Автоматичен отчет". They also choose the recipients (default: their profile
 e-mail) and what to include: the summary in the body, plus the visits CSV, cards CSV or full
-JSON as attachments. "Изпрати сега" sends today's report as a test, and the panel shows the
+JSON, packed into one `.zip` attachment. Webmail such as mail.bg doesn't list loose
+`text/csv` parts as files, but every service lists a ZIP. "Изпрати сега" sends today's report as a test, and the panel shows the
 result of the last send.
 
 E-mail is delivered **directly** to the recipients' mail servers (`app/mailer.py`). No mail

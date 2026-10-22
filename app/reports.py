@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import threading
+import zipfile
 from datetime import date, timedelta
 
 from . import config, credits, prefs, schedule, store
@@ -176,9 +177,9 @@ class FileNotifier:
         return paths
 
 
-# CSVs go out as an Excel type: some webmail (e.g. mail.bg) does not list text/* parts as files
-ATTACH = {"txt": (".txt", "text", "plain"), "visits": ("_visits.csv", "application", "vnd.ms-excel"),
-          "balances": ("_balances.csv", "application", "vnd.ms-excel"), "json": (".json", "application", "json")}
+# the chosen files travel in one ZIP: every mail service lists a .zip as a file and keeps the
+# .csv / .json inside intact (webmail such as mail.bg hides or relabels loose text/* parts)
+ATTACH = {"txt": ".txt", "visits": "_visits.csv", "balances": "_balances.csv", "json": ".json"}
 
 
 def mail_configured():
@@ -201,10 +202,13 @@ class EmailNotifier:
             raise RuntimeError("no e-mail address for the report")
         attach = p.get("report_attach") or ["txt", "visits", "balances"]
         files = []
-        for k in attach:
-            if k in ATTACH and k != "txt":
-                suffix, main, sub = ATTACH[k]
-                files.append((file_base(day, coach) + suffix, rendered[suffix].encode("utf-8"), main, sub))
+        inside = [(file_base(day, coach) + ATTACH[k], rendered[ATTACH[k]]) for k in attach if k in ATTACH and k != "txt"]
+        if inside:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                for name, content in inside:
+                    z.writestr(name, content.encode("utf-8"))
+            files.append((file_base(day, coach) + ".zip", buf.getvalue(), "application", "zip"))
         lang = coach.get("lang") or config.CONFIG["default_lang"]
         title = "%s %s - %s" % ("Дневен отчет" if lang == "bg" else "Daily report", day.strftime("%d.%m.%Y"), coach["name"])
         body = rendered[".txt"] if "txt" in attach else title + "\n"

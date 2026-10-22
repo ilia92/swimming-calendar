@@ -260,7 +260,8 @@
   "sent_now": "Report sent",
   "send_failed": "Sending failed - see details",
   "mail_ok": "Last sent {at} (for {day})",
-  "mail_fail": "Sending failed {at} (for {day})"
+  "mail_fail": "Sending failed {at} (for {day})",
+  "zip_note": "The files arrive in one ZIP archive (the CSVs open in Excel)."
  },
  "coaches": {
   "title": "Coaches",

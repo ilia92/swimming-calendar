@@ -2241,7 +2241,7 @@ async function autoReportCard(rep) {
         el('label', { class: 'member-pick' }, el('input', {
           type: 'checkbox', value: k, checked: attach.has(k),
           onchange: (ev) => { if (ev.target.checked) attach.add(k); else attach.delete(k); save({ report_attach: [...attach] }); },
-        }), el('span', {}, label))))),
+        }), el('span', {}, label)))), el('span', { class: 'muted small' }, t('reports.zip_note'))),
       el('div', { class: 'row' }, el('span', { class: 'grow' }, statusLine),
         btn('✉️ ' + t('reports.send_now'), () => act(() => api('POST', '/reports/run', { email: true }),
           (r) => (r.mail_status && r.mail_status.ok ? t('reports.sent_now') : t('reports.send_failed'))), 'small' + (rep.mail_configured ? '' : ' hidden')))));
