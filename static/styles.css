@@ -983,3 +983,11 @@ dialog::backdrop { background: rgba(6, 25, 40, .45); backdrop-filter: blur(2px);
   .today-card-head .grow { order: 9; flex-basis: 100%; }
   .today-card-head .phase { margin-right: auto; }
 }
+
+/* =================================================================== v17 */
+@media (min-width: 761px) { dialog#dialog.wide { width: min(860px, calc(100vw - 2rem)); } }
+/* date pickers inside popups open in place - no clipped calendar, no inner scrolling */
+dialog .dp-wrap .combo-popup { position: static; width: 100%; max-width: 320px; margin-top: .4rem; box-shadow: none; }
+.card-btns { display: inline-flex; align-items: center; gap: .15rem; }
+.excuse-btn { color: var(--warn); font-weight: 600; }
+dialog .form.cols:has(.dp-wrap) { align-items: start; }

@@ -443,6 +443,7 @@ async function renderDialog() {
     D.stack.length > 1 ? btn('‹ ' + t('common.back'), backDialog, 'ghost small') : null,
     el('span', { class: 'spacer' }),
     btn('✕', closeDialog, 'ghost small icon'));
+  D.node.classList.toggle('wide', !!builder.wide);
   D.node.replaceChildren(head, ...clean([content]));
   if (!D.node.open) D.node.showModal();
 }
@@ -1937,7 +1938,10 @@ const addTemplateCard = (swimmer, tp) => addCard(swimmer, { template_id: tp.id }
 function quickPackageButton(s) {
   if (S.templates.length === 1) {
     const tp = S.templates[0];
-    return el('button', { type: 'button', class: 'btn small card-btn', title: cardHint(tp, s), onclick: () => addTemplateCard(s, tp) }, '+ ' + tp.name);
+    // the only place cards are added: template button, plus ⋯ for a custom amount
+    return el('span', { class: 'card-btns' },
+      el('button', { type: 'button', class: 'btn small card-btn', title: cardHint(tp, s), onclick: () => addTemplateCard(s, tp) }, '+ ' + tp.name),
+      el('button', { type: 'button', class: 'btn small ghost icon', title: t('credits.custom'), onclick: () => popup(() => packagePopup(s)) }, '⋯'));
   }
   return el('button', { type: 'button', class: 'btn small card-btn', title: t('credits.add_package') + ' · ' + s.name, onclick: () => popup(() => packagePopup(s)) },
     '+ ' + t('credits.add_card'));
@@ -2048,9 +2052,6 @@ function swimmerOverview(out) {
   const last = out.comments[0];
   return [
     creditsBar(out.balance),
-    el('div', { class: 'row', style: 'margin:.5rem 0' },
-      S.templates.map((tp) => el('button', { type: 'button', class: 'btn small primary', title: cardHint(tp, u), onclick: () => addTemplateCard(u, tp) }, '+ ' + tp.name)),
-      btn('+ ' + t('credits.custom_short'), () => popup(() => packagePopup(u), { keep: true }), 'small')),
     h2(t('visits.upcoming')),
     upcoming.length ? el('ul', { class: 'list' }, upcoming.map((b) => el('li', {},
       el('strong', { class: 'nowrap' }, fmtShort(b.date)), b.start, el('span', { class: 'grow' }), statusSelect(b.id, b.status, false))))
@@ -2288,19 +2289,20 @@ function todayCard(s, swimmers, first) {
   const rows = listed.map((a) => {
     const isHere = a.status === 'attended' && a.checked;
     const name = a.member || a.name;
-    return el('div', { class: 'today-row' + (isHere ? ' here' : '') + (a.status === 'no_show' ? ' gone' : '') },
+    return el('div', { class: 'today-row' + (isHere ? ' here' : '') + (a.status === 'no_show' || a.status === 'excused' ? ' gone' : '') },
       avatar({ id: a.swimmer_id, name, avatar: a.avatar }, 40),
       el('div', { class: 'grow', onclick: () => popup(() => swimmerPopup(a.swimmer_id)) },
         el('strong', {}, name), a.member ? el('span', { class: 'muted small' }, ' · ' + a.name) : null,
         el('div', { class: 'small muted' },
           a.credits && a.credits.low ? el('span', { class: 'warn-text' }, '⚠ ' + t('credits.left_short', { n: a.credits.available }) + ' ') : null,
           a.swimmer_note ? '✉️ ' + a.swimmer_note : (a.last_comment ? '💬 ' + a.last_comment.text : ''))),
-      late && !isHere && a.status !== 'no_show' && a.phone ? el('a', { class: 'btn small', href: 'tel:' + a.phone, title: a.phone }, '📞') : null,
+      late && !isHere && a.status !== 'no_show' && a.status !== 'excused' && a.phone ? el('a', { class: 'btn small', href: 'tel:' + a.phone, title: a.phone }, '📞') : null,
       canCheck ? el('button', {
         type: 'button', class: 'checkin' + (isHere ? ' on' : ''),
         onclick: () => (isHere ? null : changeStatus(a.booking_id, a.status, 'attended', name, a.protected)),
       }, isHere ? '✓ ' + t('today.is_here') : t('today.check_in')) : el('span', { class: 'muted small' }, t('today.opens', { time: hhmm(Math.max(0, mins(s.start) - (S.settings.checkin_early_minutes || 15))) })),
-      canCheck && !isHere && a.status !== 'no_show' ? btn('✗', () => changeStatus(a.booking_id, a.status, 'no_show', name, a.protected), 'small ghost danger icon') : null);
+      canCheck && !isHere && a.status !== 'excused' ? btn(t('status.excused'), () => changeStatus(a.booking_id, a.status, 'excused', name, a.protected), 'small ghost excuse-btn')
+        : a.status === 'excused' ? el('span', { class: 'badge excused' }, t('status.excused')) : null);
   });
   const unmarked = ph.key === 'done' ? listed.filter((a) => a.status === 'attended' && !a.checked) : [];
   const booked = new Set(listed.map((a) => a.swimmer_id + '|' + (a.member || '')));
@@ -2341,6 +2343,7 @@ function todayCard(s, swimmers, first) {
 
 // ------------------------------------------------------------------ coach: absence, messages, insights
 
+absencePopup.wide = true;
 async function absencePopup() {
   const out = await api('GET', '/absences');
   const form = el('form', {
