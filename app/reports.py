@@ -176,8 +176,9 @@ class FileNotifier:
         return paths
 
 
-ATTACH = {"txt": (".txt", "text", "plain"), "visits": ("_visits.csv", "text", "csv"),
-          "balances": ("_balances.csv", "text", "csv"), "json": (".json", "application", "json")}
+# CSVs go out as an Excel type: some webmail (e.g. mail.bg) does not list text/* parts as files
+ATTACH = {"txt": (".txt", "text", "plain"), "visits": ("_visits.csv", "application", "vnd.ms-excel"),
+          "balances": ("_balances.csv", "application", "vnd.ms-excel"), "json": (".json", "application", "json")}
 
 
 def mail_configured():
