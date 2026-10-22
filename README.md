@@ -69,8 +69,6 @@ report is written to disk as a fallback that doesn't depend on the web app.
 - An admin coach can create other coaches.
 
 **Swimmer**
-- **Repeat booking:** the same slot for 4 or 8 weeks in one go. It skips full or cancelled
-  weeks and stops when visits run out.
 - **Waiting list** for full slots. When a place frees up, the first person in line who has
   visits is booked automatically, and a banner tells them.
 - Books and cancels within the coach's rules, and sees visits left plus when they

@@ -1364,32 +1364,11 @@ def _book(d, viewer, swimmer, sess, wanted, force, n, check_window=True):
     return made
 
 
-def _weekly_keys(d, sess, weeks):
-    """Keys of the same slot in the following weeks (repeating slots only)."""
-    if sess["kind"] != "slot":
-        return []
-    day = date.fromisoformat(sess["date"])
-    out = []
-    for i in range(1, weeks):
-        nxt = schedule.get_session(d, "%s@%sT%s" % (sess["source_id"], (day + timedelta(weeks=i)).isoformat(), sess["start"]))
-        # the slot may have moved to a new version of the availability window
-        if not nxt:
-            for w in d["availability"].values():
-                if w["coach_id"] == sess["coach_id"]:
-                    cand = schedule.get_session(d, schedule.slot_key(w, day + timedelta(weeks=i), sess["start"]))
-                    if cand:
-                        nxt = cand
-                        break
-        out.append(nxt or {"key": None, "date": (day + timedelta(weeks=i)).isoformat()})
-    return out
-
-
 @route("POST", "/bookings")
 def create_booking(ctx):
-    """{session_key, members?, swimmer_id? (coach), force? (coach), repeat_weeks? (1-12)}"""
+    """{session_key, members?, swimmer_id? (coach), force? (coach)}"""
     viewer = ctx.user
     force = auth.is_coach(viewer) and _bool(ctx.b("force"))
-    weeks = parse_int(ctx.b("repeat_weeks") or 1, "repeat_weeks", 1, 12)
 
     def fn(d):
         n = now()
@@ -1397,21 +1376,9 @@ def create_booking(ctx):
         sess = schedule.get_session(d, ctx.b("session_key"))
         if not sess or sess["coach_id"] != swimmer.get("coach_id"):
             raise ApiError(404, "session_not_found", "session not found")
-        made = _book(d, viewer, swimmer, sess, ctx.b("members"), force, n)
-        skipped = []
-        for nxt in _weekly_keys(d, sess, weeks):
-            if not nxt.get("key"):
-                skipped.append({"date": nxt["date"], "reason": "session_not_found"})
-                continue
-            try:
-                made += _book(d, viewer, swimmer, nxt, ctx.b("members"), force, n)
-            except ApiError as e:
-                skipped.append({"date": nxt["date"], "reason": e.code})
-                if e.code == "no_credits":
-                    break                  # later weeks would not fit either
-        return [booking_out(d, b, viewer, n) for b in made], skipped
-    made, skipped = store.mutate(fn)
-    return {"booking": made[0], "bookings": made, "skipped": skipped}
+        return [booking_out(d, b, viewer, n) for b in _book(d, viewer, swimmer, sess, ctx.b("members"), force, n)]
+    made = store.mutate(fn)
+    return {"booking": made[0], "bookings": made}
 
 
 # --------------------------------------------------------------------------- waiting list

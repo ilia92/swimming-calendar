@@ -1193,34 +1193,27 @@ function swimmerSessionBody(s, inline) {
     const picks = members.slice(0, s.free).map((m) => el('label', { class: 'member-pick' },
       el('input', { type: 'checkbox', value: m, checked: true }), el('span', {}, m)));
     const hint = el('p', { class: 'muted small book-hint' });
-    const maxWeeks = repeatLimit(s.date);
-    const repeat = !inline && s.kind === 'slot' && maxWeeks > 1 ? el('select', { class: 'auto repeat-sel', 'aria-label': t('repeat.label') },
-      Array.from({ length: maxWeeks }, (_, i) => i + 1).map((w) => el('option', { value: w }, w === 1 ? t('repeat.once') : t('repeat.weeks', { n: w })))) : null;
     const bookBtn = btn(t('book.book'), async () => {
-        const body = { session_key: s.key, repeat_weeks: repeat ? Number(repeat.value) : 1 };
+        const body = { session_key: s.key };
         if (members.length) {
           body.members = picks.map((p) => p.querySelector('input')).filter((c) => c.checked).map((c) => c.value);
           if (!body.members.length) { toast(t('errors.pick_members'), 'error'); return; }
         }
-        act(() => api('POST', '/bookings', body), (r) => (r && body.repeat_weeks > 1
-          ? t('repeat.done', { n: new Set(r.bookings.map((b) => b.date)).size, skipped: (r.skipped || []).length }) : t('book.booked')));
+        act(() => api('POST', '/bookings', body), t('book.booked'));
       }, 'primary');
     // one visit per person: keep the hint and the button in step with the ticked members
-    // one visit per person per week: keep the hint and the button in step with the choices
+    // one visit per person: keep the hint and the button in step with the ticked members
     const update = () => {
-      const people = members.length ? picks.filter((p) => p.querySelector('input').checked).length : 1;
-      const weeks = repeat ? Number(repeat.value) : 1;
-      const n = people * weeks;
-      hint.replaceChildren(bookHint(n, weeks > 1));
+      const n = members.length ? picks.filter((p) => p.querySelector('input').checked).length : 1;
+      hint.replaceChildren(bookHint(n));
       hint.classList.toggle('warn-text', !!S.balance && n > S.balance.available);
       bookBtn.textContent = t('book.book') + (n !== 1 ? ' (' + n + ')' : '');
-      bookBtn.disabled = members.length > 0 && people === 0;
+      bookBtn.disabled = members.length > 0 && n === 0;
     };
     picks.forEach((p) => p.querySelector('input').addEventListener('change', update));
-    if (repeat) repeat.addEventListener('change', update);
     update();
     if (!inline || members.length) out.push(hint);
-    out.push(el('div', { class: 'book-row' }, picks.length ? el('div', { class: 'member-picks' }, picks) : null, repeat, bookBtn));
+    out.push(el('div', { class: 'book-row' }, picks.length ? el('div', { class: 'member-picks' }, picks) : null, bookBtn));
   } else if ((s.my_waitlist || []).length) {
     out.push(el('div', { class: 'wait-box' }, s.my_waitlist.map((w) => el('div', { class: 'row' },
       el('span', { class: 'grow' }, '⏳ ' + t('wait.on_list', { pos: w.position }) + (w.member ? ' · ' + w.member : '')),
@@ -1255,21 +1248,9 @@ function visitNotes(b, opts = {}) {
   ];
 }
 
-/** How many weekly repeats fit: within the coach's booking horizon and before the swimmer's cards expire. */
-function repeatLimit(dateIso) {
-  let last = addDays(parseISO(todayISO()), S.settings.booking_horizon_days || 28);
-  const cards = ((S.balance && S.balance.packages) || []).filter((p) => !p.expired && p.remaining > 0);
-  if (cards.length && cards.every((p) => p.valid_until)) {
-    const latest = parseISO(cards.map((p) => p.valid_until).sort().pop());
-    if (latest < last) last = latest;
-  }
-  return Math.max(1, Math.min(8, Math.floor((last - parseISO(dateIso)) / (7 * 864e5)) + 1));
-}
-
-function bookHint(n, upTo) {
+function bookHint(n) {
   const left = S.balance ? S.balance.available : '?';
-  const key = upTo ? 'session.book_hint_upto' : n === 1 ? 'session.book_hint' : 'session.book_hint_many';
-  return t(key, { n, left, h: S.settings.cancel_cutoff_hours });
+  return t(n === 1 ? 'session.book_hint' : 'session.book_hint_many', { n, left, h: S.settings.cancel_cutoff_hours });
 }
 
 /** Which members of a joint account are coming (checkboxes, all free ones pre-ticked). */

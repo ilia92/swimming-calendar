@@ -498,13 +498,11 @@ class ApiTest(unittest.TestCase):
         util.set_now(datetime(2026, 11, 3, 9, 0, tzinfo=config.tz()))            # window passed on its own
         self.assertFalse(a.ok("GET", "/bookings?from=2026-10-29&to=2026-10-29")["bookings"][0]["can_ack"])
 
-    def test_repeat_booking_and_waitlist(self):
+    def test_waitlist(self):
         slot = self.make_slot(capacity=1)
         key = "%s@2026-10-22T18:00" % slot["id"]
         a = self.make_swimmer("anna", "Анна", visits=3)
-        out = a.ok("POST", "/bookings", {"session_key": key, "repeat_weeks": 5})
-        self.assertEqual([b["date"] for b in out["bookings"]], ["2026-10-22", "2026-10-29", "2026-11-05"])
-        self.assertEqual(out["skipped"], [{"date": "2026-11-12", "reason": "no_credits"}])
+        out = a.ok("POST", "/bookings", {"session_key": key})
         b = self.make_swimmer("boris", "Борис", visits=5)
         self.assertEqual(b.call("POST", "/bookings", {"session_key": key})[1]["error"], "full")
         b.ok("POST", "/waitlist", {"session_key": key})
