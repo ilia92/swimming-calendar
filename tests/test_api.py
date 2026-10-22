@@ -447,6 +447,57 @@ class ApiTest(unittest.TestCase):
         other = self.make_swimmer("boris", "Борис")
         self.assertEqual(other.call("POST", "/bookings/%s/note" % bk["id"], {"text": "x"})[0], 404)
 
+    def test_past_visits_are_protected(self):
+        slot = self.make_slot()
+        key = "%s@2026-10-22T18:00" % slot["id"]
+        a = self.make_swimmer(visits=10)
+        bk = a.ok("POST", "/bookings", {"session_key": key})["booking"]
+        self.assertEqual(a.call("POST", "/bookings/%s/ack" % bk["id"], {"action": "confirm"})[1]["error"], "ack_closed")
+        util.set_now(datetime(2026, 10, 22, 20, 0, tzinfo=config.tz()))          # training over
+        mine = a.ok("GET", "/bookings")["bookings"][0]
+        self.assertEqual((mine["status"], mine["can_ack"], mine["protected"]), ("attended", True, False))
+        # inside the window the coach can still correct freely - and the swimmer sees it
+        out = self.coach.ok("PATCH", "/bookings/%s" % bk["id"], {"status": "no_show"})
+        self.assertFalse(out["requested"])
+        self.assertTrue(a.ok("GET", "/bookings?attention=1")["bookings"][0]["unseen"])
+        self.coach.ok("PATCH", "/bookings/%s" % bk["id"], {"status": "attended"})
+        a.ok("POST", "/bookings/%s/ack" % bk["id"], {"action": "confirm"})
+        self.assertEqual(a.ok("GET", "/bookings?attention=1")["bookings"], [])
+        # confirmed -> locked: costing change becomes a request, refund goes through
+        out = self.coach.ok("PATCH", "/bookings/%s" % bk["id"], {"status": "no_show"})
+        self.assertTrue(out["requested"])
+        self.assertEqual(out["booking"]["status"], "attended")
+        a.ok("POST", "/bookings/%s/ack" % bk["id"], {"action": "reject"})
+        self.assertEqual(a.ok("GET", "/bookings")["bookings"][0]["status"], "attended")
+        self.assertFalse(self.coach.ok("PATCH", "/bookings/%s" % bk["id"], {"status": "excused"})["requested"])
+        self.assertEqual(a.ok("GET", "/credits/%s" % a.id)["balance"]["used"], 0)
+        out = self.coach.ok("PATCH", "/bookings/%s" % bk["id"], {"status": "attended"})
+        self.assertTrue(out["requested"])                                        # costs a visit again
+        a.ok("POST", "/bookings/%s/ack" % bk["id"], {"action": "approve"})
+        hist = [h["kind"] for h in a.ok("GET", "/bookings")["bookings"][0]["history"]]
+        self.assertEqual(hist, ["status", "status", "confirm", "requested", "rejected", "status", "requested", "approved"])
+        # dispute within the window, coach resolves
+        old_key = self.coach.ok("POST", "/extra-sessions", {"date": "2026-10-15", "start": "18:00", "duration_min": 60,
+                                                            "capacity": 4})["session"]["key"]
+        bk2 = self.coach.ok("POST", "/bookings", {"session_key": old_key, "swimmer_id": a.id})
+        util.set_now(datetime(2026, 10, 23, 9, 0, tzinfo=config.tz()))
+        # 15.10 + 3 days is long gone: adding a visit there needs the swimmer's approval
+        b2 = bk2["booking"]
+        self.assertEqual((b2["status"], b2["pending"]["status"]), ("cancelled", "attended"))
+        self.assertEqual(self.coach.ok("GET", "/bookings?attention=1")["bookings"][0]["id"], b2["id"])
+        a.ok("POST", "/bookings/%s/ack" % b2["id"], {"action": "approve"})
+        self.assertEqual(a.ok("GET", "/credits/%s" % a.id)["balance"]["used"], 2)
+        bk3 = a.ok("POST", "/bookings", {"session_key": "%s@2026-10-29T18:00" % slot["id"]})["booking"]
+        util.set_now(datetime(2026, 10, 30, 9, 0, tzinfo=config.tz()))
+        self.assertEqual(a.call("POST", "/bookings/%s/ack" % bk3["id"], {"action": "dispute"})[1]["error"], "invalid_field")
+        a.ok("POST", "/bookings/%s/ack" % bk3["id"], {"action": "dispute", "comment": "Не бях там - болен"})
+        att = self.coach.ok("GET", "/sessions?from=2026-10-29&to=2026-10-29")["sessions"][0]["attendees"][0]
+        self.assertEqual((att["ack"]["status"], att["protected"]), ("disputed", True))
+        self.coach.ok("POST", "/bookings/%s/resolve" % bk3["id"])
+        self.assertEqual(self.coach.call("POST", "/bookings/%s/ack" % bk3["id"], {"action": "confirm"})[0], 403)
+        util.set_now(datetime(2026, 11, 3, 9, 0, tzinfo=config.tz()))            # window passed on its own
+        self.assertFalse(a.ok("GET", "/bookings?from=2026-10-29&to=2026-10-29")["bookings"][0]["can_ack"])
+
     def test_sessions_include_holidays(self):
         out = self.coach.ok("GET", "/sessions?from=2026-12-21&to=2026-12-27")
         self.assertEqual(sorted(out["holidays"]), ["2026-12-24", "2026-12-25", "2026-12-26"])

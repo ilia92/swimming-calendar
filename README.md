@@ -72,6 +72,22 @@ report is written to disk as a fallback that doesn't depend on the web app.
 - Visits are taken from the card that expires first. Visits not covered by any card show
   as **unpaid**, and a card added later covers them.
 
+## Past visits are protected
+
+This means the customer can trust the record of what they paid for.
+
+- After a training ends, the swimmer has **3 days** (`ack_window_days`) to **confirm ✓** or
+  **dispute** the visit, with a comment. After that the visit locks on its own.
+  Confirming locks it sooner.
+- On a locked visit, a coach change that **favours the swimmer** is applied right away:
+  giving a visit back (excused/removed), or no-show → attended. A change that **costs** the
+  swimmer becomes a **request** the swimmer approves or rejects. That covers marking them
+  attended/no-show on a visit they didn't use, attended → no-show, and adding them to an
+  old training.
+- Every change to a past visit is kept in that visit's history, which the swimmer can see.
+  A banner and a badge show them anything new.
+- A disputed visit is flagged for the coach until they mark it **resolved**.
+
 ## Running
 
 ```bash

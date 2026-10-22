@@ -67,6 +67,14 @@ A session key is `"<window_id>@YYYY-MM-DDTHH:MM"` for a slot of an availability 
 | DELETE | `/bookings/{id}` | owner (before the cutoff), coach | Sets the status to `cancelled` |
 | PATCH | `/bookings/{id}` | coach | `{status}`. `attended`, `no_show` and `excused` are allowed only once the session has started |
 | POST | `/bookings/{id}/note` | owner, coach | `{text}`. The coach writes `note`, the swimmer writes `swimmer_note`, and both see both |
+| POST | `/bookings/{id}/ack` | owner (swimmer) | `{action: confirm \| dispute \| approve \| reject \| seen, comment?}`. Confirms or disputes a past visit, or answers a coach request |
+| POST | `/bookings/{id}/resolve` | coach | Marks a disputed visit as resolved |
+| GET | `/bookings?attention=1` | user | Swimmers get coach requests and unseen changes. Coaches get disputes and requests that are still open |
+
+Past visits: each booking has `ended`, `protected`, `can_ack`, `ack_until`, `ack`
+(`confirmed`/`disputed`/`resolved`/`changed`), `pending` (a coach request awaiting approval)
+and `history`. On a protected visit, `PATCH` with a change that costs the swimmer returns
+`{"requested": true}` and is stored as `pending` instead of being applied.
 
 Possible statuses are `booked`, `attended`, `no_show`, `excused` and `cancelled`.
 `reason` explains coach-side cancellations. A `booked` booking whose session has ended

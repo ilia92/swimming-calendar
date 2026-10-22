@@ -271,7 +271,14 @@
   "comment_deleted": "comment deleted",
   "avatar_changed": "new photo",
   "settings_changed": "rules changed",
-  "visit_note": "visit note"
+  "visit_note": "visit note",
+  "booking_change_requested": "change requested",
+  "visit_confirm": "visit confirmed",
+  "visit_dispute": "visit disputed",
+  "visit_approve": "change approved",
+  "visit_reject": "change rejected",
+  "visit_seen": "reviewed",
+  "dispute_resolved": "dispute resolved"
  },
  "errors": {
   "network": "Cannot reach the server.",
@@ -312,7 +319,10 @@
   "session_has_attendees": "Swimmers are booked - remove them or cancel the training instead.",
   "pick_members": "Choose who is coming.",
   "too_many_members": "Too many members on the account.",
-  "self_booking_disabled": "Your coach does the booking - please contact them."
+  "self_booking_disabled": "Your coach does the booking - please contact them.",
+  "ack_closed": "The confirmation period has ended.",
+  "no_request": "Nothing to approve.",
+  "not_disputed": "This visit is not disputed."
  },
  "availability": {
   "button": "Availability",
@@ -452,5 +462,48 @@
  },
  "coach": {
   "yours": "Your coach"
+ },
+ "ack": {
+  "confirm": "Confirm",
+  "confirmed": "confirmed",
+  "dispute": "Dispute",
+  "disputed": "disputed",
+  "resolved": "dispute resolved",
+  "final": "final",
+  "until": "Confirm or dispute until {date}",
+  "changed_reconfirm": "Your coach changed this visit - please confirm again",
+  "dispute_q": "What is wrong with this visit? Your coach will see your comment.",
+  "dispute_ph": "e.g. “I wasn't at this training”",
+  "disputed_sent": "Visit disputed - your coach will see it",
+  "coach_asks": "Your coach asks to change: {from} → {to}",
+  "approve": "Approve",
+  "reject": "Reject",
+  "approved": "Change approved",
+  "rejected": "Change rejected",
+  "changed_by_coach": "Your coach changed this visit.",
+  "seen": "OK",
+  "history": "Changes ({n})",
+  "h_status": "changed",
+  "h_requested": "change requested",
+  "h_approved": "approved by swimmer",
+  "h_rejected": "rejected by swimmer",
+  "h_confirm": "confirmed",
+  "h_dispute": "disputed",
+  "h_resolved": "dispute resolved",
+  "h_added": "added by coach",
+  "waiting": "waiting for the swimmer's approval: → {to}",
+  "resolve": "Resolved",
+  "confirmed_hint": "The swimmer confirmed this visit",
+  "final_hint": "Final: changes that cost a visit need the swimmer's approval",
+  "request_confirm": "{name}'s visit is final. This change would cost them a visit, so they have to approve it. Send a request?",
+  "send_request": "Send request",
+  "request_sent": "Request sent to {name} for approval",
+  "pending_badge": "waiting for approval",
+  "coach_banner": "Disputed: {d} · waiting for approval: {p}",
+  "swimmer_banner": "Changes to past visits: {n}",
+  "review": "Review",
+  "to_confirm": "Visits to confirm: {n}",
+  "confirm_all": "Confirm all",
+  "withdraw": "If everything is fine, confirm - this withdraws the dispute."
  }
 }

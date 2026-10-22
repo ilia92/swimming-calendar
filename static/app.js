@@ -104,7 +104,9 @@ function toast(msg, kind, action) {
   setTimeout(() => n.remove(), action ? 7000 : kind === 'error' ? 6000 : 3000);
 }
 
-const badge = (status, b) => (byCoach(b || {})
+const badge = (status, b) => (b && b.reason === 'pending_approval'
+  ? el('span', { class: 'badge excused' }, '⏳ ' + t('ack.pending_badge'))
+  : byCoach(b || {})
   ? el('span', { class: 'badge called-off' }, t('status.called_off'))
   : el('span', { class: 'badge ' + status }, t('status.' + status)));
 const field = (label, input) => el('label', { class: 'field' }, label, input);
@@ -504,7 +506,8 @@ function renderShell() {
     nav.replaceChildren(...navItems().map(([r, k]) => el('a', { href: '#/' + r, class: current === r ? 'active' : '' }, t(k))));
   } else {
     nav.replaceChildren(el('a', { href: '#/calendar', class: 'active' }, t('nav.calendar')),
-      el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(myVisitsPopup); } }, t('nav.visits')));
+      el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(myVisitsPopup); } }, t('nav.visits'),
+        S.attention ? el('span', { class: 'nav-badge' }, S.attention) : null));
   }
 }
 
@@ -737,7 +740,32 @@ async function viewCalendar() {
   else body = weekView(r, data);
   let offBanner = null;
   let nextUp = null;
-  if (!isCoach()) {
+  let ackBanner = null;
+  if (isCoach()) {
+    const att = (await api('GET', '/bookings?attention=1')).bookings;
+    if (att.length) {
+      const disputes = att.filter((b) => (b.ack || {}).status === 'disputed');
+      ackBanner = el('div', { class: 'notice ack-banner' },
+        el('strong', {}, '⚠ ' + t('ack.coach_banner', { d: disputes.length, p: att.length - disputes.length })),
+        att.map((b) => el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(() => swimmerPopup(b.swimmer_id)); } },
+          fmtShort(b.date) + ' ' + b.start + ' · ' + (b.member || b.swimmer_name) + ((b.ack || {}).status === 'disputed' ? ' ⚠' : ' ⏳'))));
+    }
+  } else {
+    const recent = (await api('GET', '/bookings?from=' + iso(addDays(parseISO(todayISO()), -(S.settings.ack_window_days || 3) - 1)))).bookings;
+    const att = (await api('GET', '/bookings?attention=1')).bookings;
+    const toConfirm = recent.filter((b) => b.can_ack && !(b.ack || {}).status);
+    S.attention = att.length + toConfirm.length;
+    renderShell();
+    if (att.length || toConfirm.length) {
+      ackBanner = el('div', { class: 'notice info ack-banner' },
+        att.length ? el('div', {}, el('strong', {}, '🔔 ' + t('ack.swimmer_banner', { n: att.length })), ' ',
+          el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(myVisitsPopup); } }, t('ack.review'))) : null,
+        toConfirm.length ? el('div', { class: 'row' }, el('span', { class: 'grow' }, '✓ ' + t('ack.to_confirm', { n: toConfirm.length })),
+          btn(t('ack.confirm_all'), () => act(async () => {
+            for (const b of toConfirm) await api('POST', '/bookings/' + b.id + '/ack', { action: 'confirm' });
+          }, t('ack.confirmed')), 'small primary'),
+          btn(t('ack.review'), () => popup(myVisitsPopup), 'small')) : null);
+    }
     const upcoming = (await api('GET', '/bookings?from=' + todayISO())).bookings;
     nextUp = upcoming.filter((b) => b.status === 'booked' && new Date(b.date + 'T' + b.end) > new Date())
       .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0] || null;
@@ -757,6 +785,7 @@ async function viewCalendar() {
   render(
     !isCoach() && S.balance ? creditsBar(S.balance) : null,
     !isCoach() ? nextTraining(nextUp) : null,
+    ackBanner,
     offBanner,
     toolbar,
     !isCoach() ? legend() : null,
@@ -1219,10 +1248,7 @@ function attendeeCard(s, a) {
     },
   }, el('textarea', { name: 'text', required: true, maxlength: 4000, placeholder: t('comments.placeholder') }),
   el('div', { class: 'actions' }, el('button', { class: 'btn small primary', type: 'submit' }, t('comments.add'))));
-  const setStatus = async (st) => {
-    if (!(await confirmStatus(st, a.member || a.name))) return;
-    act(() => api('PATCH', '/bookings/' + a.booking_id, { status: st }), t('common.saved'));
-  };
+  const setStatus = (st) => changeStatus(a.booking_id, a.status, st, a.member || a.name, a.protected);
   const stBtn = (st, label) => el('button', {
     type: 'button', class: 'seg ' + st + (a.status === st ? ' on' : ''), onclick: () => (a.status === st ? null : setStatus(st)),
   }, label);
@@ -1231,13 +1257,14 @@ function attendeeCard(s, a) {
       avatar({ id: a.swimmer_id, name: a.name, avatar: a.avatar }, 40),
       el('a', { href: '#', class: 'att-name', onclick: (ev) => { ev.preventDefault(); popup(() => swimmerPopup(a.swimmer_id), { keep: true }); } }, a.member || a.name),
       a.member ? el('span', { class: 'small members-tag' }, '👥 ' + a.name) : null,
-      badge(a.status),
+      badge(a.status, a.pending && a.status === 'cancelled' ? { reason: 'pending_approval' } : null),
       el('span', { class: 'spacer' }),
       a.phone ? el('a', { href: 'tel:' + a.phone, class: 'small nowrap' }, '📞 ' + a.phone) : null),
     el('div', { class: 'att-info' }, creditsChip(a.credits)),
     a.notes ? el('div', { class: 'att-note small' }, '📌 ' + a.notes) : null,
     a.last_comment ? el('div', { class: 'att-note small muted', title: fmtTs(a.last_comment.created_at) }, '💬 ' + a.last_comment.text) : null,
     a.session_comments.map((c) => el('div', { class: 'att-note small session-comment', title: t('comments.private') }, '🔒 ' + c.text, el('span', { class: 'muted' }, ' — ' + c.author_name))),
+    coachAckMarks(a, () => act(() => api('POST', '/bookings/' + a.booking_id + '/resolve'), t('ack.resolved'))),
     a.swimmer_note ? el('div', { class: 'visit-note swimmer small' }, '✉️ ', a.swimmer_note, el('span', { class: 'muted' }, ' — ' + t('notes.from_swimmer'))) : null,
     visitNoteInput(a.booking_id, a.note, t('notes.coach_ph')),
     el('div', { class: 'att-actions' },
@@ -1255,7 +1282,7 @@ function attendeeCard(s, a) {
 
 async function coachSessionBody(s, swimmers) {
   const sw = swimmers || (await api('GET', '/swimmers')).swimmers;
-  const listed = s.attendees.filter((a) => a.status !== 'cancelled');
+  const listed = s.attendees.filter((a) => a.status !== 'cancelled' || a.pending);
   const freeMembers = (x) => (x.members || []).filter((m) => !listed.some((a) => a.swimmer_id === x.id && a.member === m));
   const avail = sw.filter((x) => x.coach_id === s.coach_id &&
     ((x.members || []).length ? freeMembers(x).length > 0 : !listed.some((a) => a.swimmer_id === x.id)));
@@ -1326,20 +1353,106 @@ async function coachSessionBody(s, swimmers) {
   ];
 }
 
+const CONSUMES = ['attended', 'no_show'];
+/** Mirror of the server rule: would this change count against the swimmer? */
+const costsSwimmer = (from, to) => (CONSUMES.includes(to) && !CONSUMES.includes(from)) || (from === 'attended' && to === 'no_show');
+
+/** Coach status change, aware of locked visits (those become a request to the swimmer). */
+async function changeStatus(bookingId, from, to, name, isProtected) {
+  if (!(await confirmStatus(to, name))) return false;
+  if (isProtected && costsSwimmer(from, to) &&
+    !(await confirmDialog(t('ack.request_confirm', { name: name || '' }), t('ack.send_request')))) return false;
+  return act(() => api('PATCH', '/bookings/' + bookingId, { status: to }),
+    (r) => (r && r.requested ? t('ack.request_sent', { name: name || '' }) : t('common.saved')));
+}
+
+/** A one-line text prompt on the small confirm dialog (used for disputes). */
+function promptText(message, placeholder, okLabel) {
+  const c = document.getElementById('confirm');
+  return new Promise((resolve) => {
+    let answer = null;
+    c.onclose = () => resolve(answer);
+    const box = el('textarea', { maxlength: 500, placeholder, required: true });
+    c.replaceChildren(el('p', {}, message), box, el('div', { class: 'actions' },
+      btn(t('common.cancel'), () => c.close()),
+      btn(okLabel, () => { if (!box.value.trim()) { box.focus(); return; } answer = box.value.trim(); c.close(); }, 'danger solid')));
+    c.showModal();
+    box.focus();
+  });
+}
+
+const ackAct = (b, action, body, msg) => act(() => api('POST', '/bookings/' + b.id + '/ack', { action, ...body }), msg);
+
+/** Swimmer-side controls and state of one past visit: confirm/dispute, coach requests, history. */
+function visitAck(b) {
+  if (!b.ended || (b.status === 'cancelled' && !b.pending)) return null;
+  const ack = b.ack || {};
+  const parts = [];
+  if (b.pending) {
+    parts.push(el('div', { class: 'ack-request' },
+      el('span', { class: 'grow' }, '⏳ ', t('ack.coach_asks', { from: t('status.' + b.status), to: t('status.' + b.pending.status) })),
+      btn(t('ack.approve'), () => ackAct(b, 'approve', {}, t('ack.approved')), 'small primary'),
+      btn(t('ack.reject'), () => ackAct(b, 'reject', {}, t('ack.rejected')), 'small danger')));
+  }
+  if (ack.status === 'disputed') parts.push(el('div', { class: 'ack-state disputed' }, '⚠ ' + t('ack.disputed') + (ack.comment ? ': ' + ack.comment : '')));
+  else if (ack.status === 'resolved') parts.push(el('div', { class: 'ack-state' }, '✔ ' + t('ack.resolved')));
+  else if (ack.status === 'confirmed') parts.push(el('div', { class: 'ack-state ok' }, '✓ ' + t('ack.confirmed')));
+  else if (b.protected) parts.push(el('div', { class: 'ack-state' }, '🔒 ' + t('ack.final')));
+  if (b.can_ack || ack.status === 'changed') {
+    parts.push(el('div', { class: 'ack-actions' },
+      el('span', { class: 'muted small grow' }, ack.status === 'changed' ? t('ack.changed_reconfirm')
+        : ack.status === 'disputed' ? t('ack.withdraw') : t('ack.until', { date: fmtShort(b.ack_until.slice(0, 10)) })),
+      btn('✓ ' + t('ack.confirm'), () => ackAct(b, 'confirm', {}, t('ack.confirmed')), 'small'),
+      b.can_ack && ack.status !== 'disputed' ? btn(t('ack.dispute'), async () => {
+        const comment = await promptText(t('ack.dispute_q'), t('ack.dispute_ph'), t('ack.dispute'));
+        if (comment) ackAct(b, 'dispute', { comment }, t('ack.disputed_sent'));
+      }, 'small ghost danger') : null));
+  }
+  if (b.unseen && !b.pending) {
+    parts.push(el('div', { class: 'ack-request' }, el('span', { class: 'grow' }, '🔔 ' + t('ack.changed_by_coach')),
+      btn(t('ack.seen'), () => ackAct(b, 'seen', {}, null), 'small')));
+  }
+  const hist = (b.history || []);
+  if (hist.length) parts.push(historyList(hist));
+  return parts.length ? el('div', { class: 'row-notes ack-box' + (b.unseen || b.pending ? ' attention' : '') }, parts) : null;
+}
+
+function historyList(hist) {
+  return el('details', { class: 'history' }, el('summary', {}, t('ack.history', { n: hist.length })),
+    el('ul', {}, hist.map((h) => el('li', {}, el('span', { class: 'muted' }, fmtTs(h.at) + ' · ' + h.by_name + ': '),
+      t('ack.h_' + h.kind), h.from || h.to ? ' ' + [h.from && t('status.' + h.from), h.to && t('status.' + h.to)].filter(Boolean).join(' → ') : '',
+      h.comment ? ' — „' + h.comment + '“' : ''))));
+}
+
+/** Coach-side markers on a visit: locked, confirmed/disputed, waiting for approval. */
+function coachAckMarks(b, onResolve) {
+  const ack = b.ack || {};
+  return [
+    b.pending ? el('div', { class: 'ack-request small' }, '⏳ ' + t('ack.waiting', { to: t('status.' + b.pending.status) })) : null,
+    ack.status === 'disputed' ? el('div', { class: 'ack-state disputed small' },
+      el('span', { class: 'grow' }, '⚠ ' + t('ack.disputed') + (ack.comment ? ': ' + ack.comment : '')),
+      btn(t('ack.resolve'), onResolve, 'small')) : null,
+    ack.status === 'confirmed' ? el('span', { class: 'ack-chip ok', title: t('ack.confirmed_hint') }, '✓ ' + t('ack.confirmed')) : null,
+    ack.status === 'resolved' ? el('span', { class: 'ack-chip' }, '✔ ' + t('ack.resolved')) : null,
+    b.protected && !ack.status ? el('span', { class: 'ack-chip', title: t('ack.final_hint') }, '🔒 ' + t('ack.final')) : null,
+  ];
+}
+
 /** A no-show still uses up a paid visit, so it has to be confirmed. */
 async function confirmStatus(status, name) {
   if (status !== 'no_show') return true;
   return confirmDialog(t('session.confirm_no_show', { name: name || '' }), '✗ ' + t('status.no_show'), true);
 }
 
-function statusSelect(bookingId, status, started, name) {
+function statusSelect(bookingId, status, started, name, isProtected) {
   const options = started ? ['attended', 'no_show', 'excused', 'cancelled'] : ['booked', 'cancelled'];
   if (!options.includes(status)) options.unshift(status);
   return el('select', {
     class: 'status-select ' + status, 'aria-label': t('fields.status'),
     onchange: async (ev) => {
-      if (!(await confirmStatus(ev.target.value, name))) { ev.target.value = status; return; }
-      act(() => api('PATCH', '/bookings/' + bookingId, { status: ev.target.value }), t('common.saved'));
+      const to = ev.target.value;
+      ev.target.value = status;           // the list redraws with the real state afterwards
+      await changeStatus(bookingId, status, to, name, isProtected);
     },
   }, options.map((o) => el('option', { value: o, selected: o === status }, t('status.' + o))));
 }
@@ -1505,7 +1618,9 @@ async function myVisitsPopup() {
   S.balance = out.balance;
   renderShell();
   const upcoming = out.bookings.filter((b) => b.status === 'booked').reverse();
-  const past = out.bookings.filter((b) => b.status !== 'booked');
+  // visits needing an answer first, then the rest of the history
+  const past = out.bookings.filter((b) => b.status !== 'booked' || b.pending)
+    .sort((a, b) => Number(Boolean(b.pending || b.unseen || b.can_ack)) - Number(Boolean(a.pending || a.unseen || a.can_ack)));
   return [
     el('h3', {}, t('nav.visits')),
     creditsBar(out.balance),
@@ -1536,6 +1651,7 @@ function bookingRow(b, withCancel) {
     badge(b.status, b),
     b.session_note && b.status === 'booked' ? el('div', { class: 'row-notes visit-note coach' }, '📢 ' + b.session_note) : null,
     visitNotes(b, { who: true }).some(Boolean) ? el('div', { class: 'row-notes' }, visitNotes(b, { who: true })) : null,
+    withCancel ? null : visitAck(b),
     withCancel && b.can_cancel ? btn(t('book.cancel'), async () => {
       if (await confirmDialog(t('book.confirm_cancel', { when: fmtShort(b.date) + ' ' + b.start }), t('book.cancel'), true)) {
         act(() => api('DELETE', '/bookings/' + b.id), t('book.cancelled'));
@@ -1907,7 +2023,9 @@ function swimmerVisits(out) {
       el('td', { class: 'nowrap' }, fmtShort(b.date)), el('td', {}, b.start + '–' + b.end, b.member ? el('div', { class: 'small members-tag' }, '👤 ' + b.member) : null,
         visitNotes(b, { who: true })),
       el('td', { class: 'small muted hide-sm' }, [b.title, b.location].filter(Boolean).join(' · ')),
-      el('td', {}, byCoach(b) ? badge(b.status, b) : statusSelect(b.id, b.status, bookingStarted(b), b.member || out.user.name)))))))
+      el('td', {}, byCoach(b) || b.pending ? badge(b.status, b) : statusSelect(b.id, b.status, bookingStarted(b), b.member || out.user.name, b.protected),
+        coachAckMarks(b, () => act(() => api('POST', '/bookings/' + b.id + '/resolve'), t('ack.resolved'))),
+        (b.history || []).length ? historyList(b.history) : null))))))
       : el('p', { class: 'muted' }, t('visits.none_history')),
     h2(t('visits.packages')),
     packagesList(out.balance.packages, true),

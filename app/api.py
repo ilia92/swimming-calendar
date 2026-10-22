@@ -12,7 +12,7 @@ import os
 import re
 from datetime import date, timedelta
 
-from . import auth, config, credits, prefs, reports, schedule, store
+from . import acks, auth, config, credits, prefs, reports, schedule, store
 from .util import (ApiError, add_minutes, clean_str, local_dt, new_id, now, parse_date, parse_int, parse_time, stamp,
                    today)
 
@@ -76,6 +76,7 @@ def booking_out(d, b, viewer, n=None):
     out["title"] = sess["title"] if sess else b.get("title", "")
     out["session_note"] = sess["note"] if sess else ""     # the coach's note for the whole training
     out["can_cancel"] = _can_cancel(b, viewer, n, d)
+    out.update(acks.out_fields(d, b, n))
     return out
 
 
@@ -194,7 +195,7 @@ def _coach_contact(user):
 def _effective_settings(user):
     with store.LOCK:
         out = prefs.for_user(store.current(), user)
-    out.update({k: config.CONFIG[k] for k in ("timezone", "default_lang", "max_capacity", "max_members")})
+    out.update({k: config.CONFIG[k] for k in ("timezone", "default_lang", "max_capacity", "max_members", "ack_window_days")})
     return out
 
 
@@ -664,7 +665,7 @@ def _bookings_by_key(d, keys, cancelled_by_coach=False):
     for b in d["bookings"].values():
         if b["session_key"] not in keys:
             continue
-        if (b["status"] != "cancelled") if not cancelled_by_coach else \
+        if (b["status"] != "cancelled" or b.get("reason") == "pending_approval") if not cancelled_by_coach else \
                 (b["status"] == "cancelled" and b.get("reason") in COACH_CANCEL_REASONS):
             out.setdefault(b["session_key"], []).append(b)
     return out
@@ -711,6 +712,8 @@ def list_sessions(ctx):
             if auth.is_coach(viewer):
                 s["attendees"] = sorted(({"booking_id": b["id"], "swimmer_id": b["swimmer_id"],
                                           "member": b.get("member"), "note": b.get("note"),
+                                          "protected": acks.is_protected(b, n), "ack": b.get("ack"),
+                                          "pending": b.get("pending"),
                                           "swimmer_note": b.get("swimmer_note"),
                                           "avatar": d["users"].get(b["swimmer_id"], {}).get("avatar"),
                                           "name": d["users"].get(b["swimmer_id"], {}).get("name", "?"),
@@ -1062,6 +1065,13 @@ def delete_extra(ctx):
 
 # --------------------------------------------------------------------------- bookings
 
+def _needs_attention(b, viewer):
+    """Swimmer: coach requests and unseen changes. Coach: disputes and requests still open."""
+    if auth.is_coach(viewer):
+        return (b.get("ack") or {}).get("status") == "disputed" or bool(b.get("pending"))
+    return bool(b.get("pending")) or bool(b.get("unseen"))
+
+
 @route("GET", "/bookings")
 def list_bookings(ctx):
     n = now()
@@ -1079,6 +1089,8 @@ def list_bookings(ctx):
         out = []
         for b in d["bookings"].values():
             if b["swimmer_id"] not in ids or (start and b["date"] < start) or (end and b["date"] > end):
+                continue
+            if _bool(ctx.q("attention")) and not _needs_attention(b, ctx.user):
                 continue
             bo = booking_out(d, b, ctx.user, n)
             if ctx.q("status") and bo["status"] != ctx.q("status"):
@@ -1131,12 +1143,23 @@ def create_booking(ctx):
         if not force and sum(1 for b in existing if _occupying(b, n)) + len(wanted) > sess["capacity"]:
             raise ApiError(409, "full", "no free places")
         unpaid_before = credits.balance(d, swimmer["id"], n)["unpaid"]
+        probe = {"date": sess["date"], "end": sess["end"]}
+        locked = acks.ended(probe, n) and n >= acks.ack_deadline(probe)
         made = []
         for member in wanted:
             b = {"id": new_id("b"), "swimmer_id": swimmer["id"], "coach_id": sess["coach_id"],
                  "session_key": sess["key"], "date": sess["date"], "start": sess["start"], "end": sess["end"],
                  "location": sess["location"], "title": sess["title"], "status": "booked", "member": member,
                  "created_at": stamp(), "updated_at": stamp(), "by": viewer["id"]}
+            if acks.ended(b, n):
+                b["unseen"] = True
+                if locked:
+                    # a visit added to an old, locked training costs the swimmer: needs their OK
+                    b.update(status="cancelled", reason="pending_approval",
+                             pending={"status": "attended", "by": viewer["id"], "at": stamp()})
+                    acks.log(b, viewer, "requested", to="attended")
+                else:
+                    acks.log(b, viewer, "added", to="attended")
             d["bookings"][b["id"]] = b
             made.append(b)
             store.audit(d, viewer["id"], "booking_created", b["id"], coach_id=sess["coach_id"],
@@ -1199,14 +1222,90 @@ def update_booking(ctx):
         b = _visible_booking(d, ctx.user, ctx.params["bid"])
         if status in ("attended", "no_show", "excused") and local_dt(date.fromisoformat(b["date"]), b["start"]) > n:
             raise ApiError(409, "not_started", "the session has not started yet")
-        old = b["status"]
+        old = credits.effective_status(b, n)
+        if old == status:
+            return booking_out(d, b, ctx.user, n), False
+        if acks.is_protected(b, n) and acks.costs_swimmer(old, status):
+            # the record is locked: the swimmer has to agree to anything that costs them
+            b["pending"] = {"status": status, "by": ctx.user["id"], "at": stamp()}
+            acks.log(b, ctx.user, "requested", **{"from": old, "to": status})
+            b["unseen"] = True
+            store.audit(d, ctx.user["id"], "booking_change_requested", b["id"], coach_id=b["coach_id"],
+                        swimmer=b["swimmer_id"], old=old, new=status)
+            return booking_out(d, b, ctx.user, n), True
         b.update(status=status, updated_at=stamp(), by=ctx.user["id"])
         b.pop("auto", None)
+        b.pop("pending", None)
+        if acks.ended(b, n):
+            acks.log(b, ctx.user, "status", **{"from": old, "to": status})
+            b["unseen"] = True
+            if (b.get("ack") or {}).get("status") == "confirmed":
+                b["ack"] = {"status": "changed", "at": stamp()}     # what they confirmed is no longer the record
         if "note" in ctx.body:
             b["note"] = clean_str(ctx.b("note"), "note", 300)
         store.audit(d, ctx.user["id"], "booking_status", b["id"], coach_id=b["coach_id"],
                     swimmer=b["swimmer_id"], old=old, new=status)
+        return booking_out(d, b, ctx.user, n), False
+    booking, requested = store.mutate(fn)
+    return {"booking": booking, "requested": requested}
+
+
+@route("POST", "/bookings/{bid}/ack")
+def ack_booking(ctx):
+    """Swimmer: confirm / dispute a past visit, approve / reject a coach request, or mark changes seen."""
+    action = ctx.b("action")
+    if action not in ("confirm", "dispute", "approve", "reject", "seen"):
+        raise ApiError(400, "invalid_field", "unknown action", field="action")
+    if auth.is_coach(ctx.user):
+        raise ApiError(403, "forbidden", "this is the swimmer's decision")
+
+    def fn(d):
+        n = now()
+        b = d["bookings"].get(ctx.params["bid"])
+        if not b or b["swimmer_id"] != ctx.user["id"]:
+            raise ApiError(404, "not_found", "booking not found")
+        if action in ("confirm", "dispute"):
+            if not acks.can_ack(b, n) and not (action == "confirm" and (b.get("ack") or {}).get("status") == "changed"):
+                raise ApiError(409, "ack_closed", "this visit can no longer be confirmed or disputed")
+            comment = clean_str(ctx.b("comment"), "comment", 500)
+            if action == "dispute" and not comment:
+                raise ApiError(400, "invalid_field", "please say what is wrong", field="comment")
+            b["ack"] = {"status": "confirmed" if action == "confirm" else "disputed", "at": stamp(),
+                        "comment": comment or None}
+            acks.log(b, ctx.user, action, comment=comment or None)
+        elif action in ("approve", "reject"):
+            p = b.get("pending")
+            if not p:
+                raise ApiError(409, "no_request", "nothing to approve")
+            if action == "approve":
+                old = credits.effective_status(b, n)
+                b.update(status=p["status"], updated_at=stamp(), by=p["by"])
+                b.pop("reason", None)
+                b.pop("auto", None)
+                acks.log(b, ctx.user, "approved", **{"from": old, "to": p["status"]})
+            else:
+                acks.log(b, ctx.user, "rejected", to=p["status"])
+            b.pop("pending", None)
+        b.pop("unseen", None)
+        store.audit(d, ctx.user["id"], "visit_" + action, b["id"], coach_id=b["coach_id"], swimmer=b["swimmer_id"])
         return booking_out(d, b, ctx.user, n)
+    return {"booking": store.mutate(fn)}
+
+
+@route("POST", "/bookings/{bid}/resolve")
+def resolve_dispute(ctx):
+    """Coach: mark a disputed visit as dealt with (after talking to the swimmer)."""
+    auth.require_coach(ctx.user)
+
+    def fn(d):
+        b = _visible_booking(d, ctx.user, ctx.params["bid"])
+        if (b.get("ack") or {}).get("status") != "disputed":
+            raise ApiError(409, "not_disputed", "this visit is not disputed")
+        b["ack"] = dict(b["ack"], status="resolved", resolved_at=stamp(), resolved_by=ctx.user["id"])
+        acks.log(b, ctx.user, "resolved")
+        b["unseen"] = True
+        store.audit(d, ctx.user["id"], "dispute_resolved", b["id"], coach_id=b["coach_id"], swimmer=b["swimmer_id"])
+        return booking_out(d, b, ctx.user)
     return {"booking": store.mutate(fn)}
 
 
