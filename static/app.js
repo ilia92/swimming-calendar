@@ -1102,7 +1102,10 @@ function attendeeCard(s, a) {
     },
   }, el('textarea', { name: 'text', required: true, maxlength: 4000, placeholder: t('comments.placeholder') }),
   el('div', { class: 'actions' }, el('button', { class: 'btn small primary', type: 'submit' }, t('comments.add'))));
-  const setStatus = (st) => act(() => api('PATCH', '/bookings/' + a.booking_id, { status: st }), t('common.saved'));
+  const setStatus = async (st) => {
+    if (!(await confirmStatus(st, a.member || a.name))) return;
+    act(() => api('PATCH', '/bookings/' + a.booking_id, { status: st }), t('common.saved'));
+  };
   const stBtn = (st, label) => el('button', {
     type: 'button', class: 'seg ' + st + (a.status === st ? ' on' : ''), onclick: () => (a.status === st ? null : setStatus(st)),
   }, label);
@@ -1206,12 +1209,21 @@ async function coachSessionBody(s, swimmers) {
   ];
 }
 
-function statusSelect(bookingId, status, started) {
+/** A no-show still uses up a paid visit, so it has to be confirmed. */
+async function confirmStatus(status, name) {
+  if (status !== 'no_show') return true;
+  return confirmDialog(t('session.confirm_no_show', { name: name || '' }), '✗ ' + t('status.no_show'), true);
+}
+
+function statusSelect(bookingId, status, started, name) {
   const options = started ? ['attended', 'no_show', 'excused', 'cancelled'] : ['booked', 'cancelled'];
   if (!options.includes(status)) options.unshift(status);
   return el('select', {
     class: 'status-select ' + status, 'aria-label': t('fields.status'),
-    onchange: (ev) => act(() => api('PATCH', '/bookings/' + bookingId, { status: ev.target.value }), t('common.saved')),
+    onchange: async (ev) => {
+      if (!(await confirmStatus(ev.target.value, name))) { ev.target.value = status; return; }
+      act(() => api('PATCH', '/bookings/' + bookingId, { status: ev.target.value }), t('common.saved'));
+    },
   }, options.map((o) => el('option', { value: o, selected: o === status }, t('status.' + o))));
 }
 
@@ -1742,7 +1754,7 @@ function swimmerVisits(out) {
       el('td', { class: 'nowrap' }, fmtShort(b.date)), el('td', {}, b.start + '–' + b.end, b.member ? el('div', { class: 'small members-tag' }, '👤 ' + b.member) : null,
         visitNotes(b, { who: true })),
       el('td', { class: 'small muted hide-sm' }, [b.title, b.location].filter(Boolean).join(' · ')),
-      el('td', {}, byCoach(b) ? badge(b.status, b) : statusSelect(b.id, b.status, bookingStarted(b))))))))
+      el('td', {}, byCoach(b) ? badge(b.status, b) : statusSelect(b.id, b.status, bookingStarted(b), b.member || out.user.name)))))))
       : el('p', { class: 'muted' }, t('visits.none_history')),
     h2(t('visits.packages')),
     packagesList(out.balance.packages, true),

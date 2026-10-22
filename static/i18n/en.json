@@ -355,7 +355,8 @@
   "called_off_coach": "Cancelled. The booked swimmers see the cancellation: {names}. Restoring it books them back in.",
   "off_banner": "Cancelled trainings:",
   "confirm_delete": "Delete the training on {when}? It disappears from the calendar.",
-  "who_comes": "who is coming?"
+  "who_comes": "who is coming?",
+  "confirm_no_show": "Are you sure? {name} will be marked as a no-show - this uses up 1 visit from the card."
  },
  "swimmer": {
   "overview": "Overview",
