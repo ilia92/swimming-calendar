@@ -1,0 +1,9 @@
+{
+  "name": "Плувен календар",
+  "short_name": "Плуване",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f7fa",
+  "theme_color": "#0b6fa4",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

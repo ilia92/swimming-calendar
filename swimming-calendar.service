@@ -1,0 +1,12 @@
+[Unit]
+Description=Swimming Calendar
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/ilia/swimming_calendar/server.py
+WorkingDirectory=/home/ilia/swimming_calendar
+Restart=always
+User=ilia
+
+[Install]
+WantedBy=multi-user.target

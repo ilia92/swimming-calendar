@@ -1,0 +1,6 @@
+config.json
+data/
+reports/
+backup.log
+__pycache__/
+*.pyc
