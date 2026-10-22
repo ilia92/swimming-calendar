@@ -1193,7 +1193,7 @@ function swimmerSessionBody(s, inline) {
       el('input', { type: 'checkbox', value: m, checked: true }), el('span', {}, m)));
     const hint = el('p', { class: 'muted small book-hint' });
     const repeat = !inline && s.kind === 'slot' ? el('select', { class: 'auto repeat-sel', 'aria-label': t('repeat.label') },
-      [1, 4, 8].map((w) => el('option', { value: w }, w === 1 ? t('repeat.once') : t('repeat.weeks', { n: w })))) : null;
+      [1, 2, 4, 8].map((w) => el('option', { value: w }, w === 1 ? t('repeat.once') : t('repeat.weeks', { n: w })))) : null;
     const bookBtn = btn(t('book.book'), async () => {
         const body = { session_key: s.key, repeat_weeks: repeat ? Number(repeat.value) : 1 };
         if (members.length) {
