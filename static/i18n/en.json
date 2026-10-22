@@ -393,7 +393,8 @@
   "note_label": "📢 Training note (swimmers see it)",
   "note_ph": "e.g. “Today at the Spartak pool, lane 3”",
   "note_banner": "Messages from your coach:",
-  "book_hint_many": "Uses {n} visits ({left} left). You can cancel up to {h}h before the start."
+  "book_hint_many": "Uses {n} visits ({left} left). You can cancel up to {h}h before the start.",
+  "book_hint_upto": "Uses up to {n} visits ({left} left) - weeks without a place are skipped. You can cancel up to {h}h before the start."
  },
  "swimmer": {
   "overview": "Overview",

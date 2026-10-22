@@ -1205,14 +1205,18 @@ function swimmerSessionBody(s, inline) {
           ? t('repeat.done', { n: new Set(r.bookings.map((b) => b.date)).size, skipped: (r.skipped || []).length }) : t('book.booked')));
       }, 'primary');
     // one visit per person: keep the hint and the button in step with the ticked members
+    // one visit per person per week: keep the hint and the button in step with the choices
     const update = () => {
-      const n = members.length ? picks.filter((p) => p.querySelector('input').checked).length : 1;
-      hint.replaceChildren(bookHint(n));
+      const people = members.length ? picks.filter((p) => p.querySelector('input').checked).length : 1;
+      const weeks = repeat ? Number(repeat.value) : 1;
+      const n = people * weeks;
+      hint.replaceChildren(bookHint(n, weeks > 1));
       hint.classList.toggle('warn-text', !!S.balance && n > S.balance.available);
-      bookBtn.textContent = t('book.book') + (members.length && n !== 1 ? ' (' + n + ')' : '');
-      bookBtn.disabled = members.length > 0 && n === 0;
+      bookBtn.textContent = t('book.book') + (n !== 1 ? ' (' + n + ')' : '');
+      bookBtn.disabled = members.length > 0 && people === 0;
     };
     picks.forEach((p) => p.querySelector('input').addEventListener('change', update));
+    if (repeat) repeat.addEventListener('change', update);
     update();
     if (!inline || members.length) out.push(hint);
     out.push(el('div', { class: 'book-row' }, picks.length ? el('div', { class: 'member-picks' }, picks) : null, repeat, bookBtn));
@@ -1250,9 +1254,10 @@ function visitNotes(b, opts = {}) {
   ];
 }
 
-function bookHint(n) {
+function bookHint(n, upTo) {
   const left = S.balance ? S.balance.available : '?';
-  return t(n === 1 ? 'session.book_hint' : 'session.book_hint_many', { n, left, h: S.settings.cancel_cutoff_hours });
+  const key = upTo ? 'session.book_hint_upto' : n === 1 ? 'session.book_hint' : 'session.book_hint_many';
+  return t(key, { n, left, h: S.settings.cancel_cutoff_hours });
 }
 
 /** Which members of a joint account are coming (checkboxes, all free ones pre-ticked). */
