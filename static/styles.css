@@ -736,3 +736,59 @@ input.switch:checked::after { transform: translateX(18px); }
 .note-banner a:hover { text-decoration: underline; }
 .session-note { font-weight: 600; }
 .manage-row { grid-template-columns: 6rem minmax(0, 1fr); }
+
+/* =================================================================== v12: swimmer month, next training */
+.toast { display: flex; align-items: center; gap: .8rem; }
+.toast-action {
+  appearance: none; border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; font-weight: 700;
+  border-radius: 6px; padding: .15rem .55rem; cursor: pointer; white-space: nowrap;
+}
+.month .cell { cursor: pointer; }
+.month .cell:focus-visible { outline: 2px solid var(--accent); }
+.chip.slot {
+  appearance: none; border: 1px solid transparent; font: inherit; font-size: .72rem; font-weight: 600; text-align: left;
+  cursor: pointer; padding: .1rem .35rem; border-radius: 5px; width: 100%; font-variant-numeric: tabular-nums;
+}
+.chip.slot.free { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.chip.slot.free:hover { background: var(--accent); color: var(--accent-text); }
+.chip.slot.free:hover .slot-free { color: inherit; }
+.slot-free { font-weight: 500; color: var(--muted); }
+.chip.slot.mine { background: var(--mine); color: #fff; }
+.chip.slot.mine.noted::after { content: " 📢"; }
+.chip.slot.x { background: var(--red-soft); color: var(--red); text-decoration: line-through; }
+.chip.slot.off { background: var(--surface-2); color: var(--muted); opacity: .6; }
+.month .cell.sw { gap: 3px; }
+
+.next-card {
+  appearance: none; display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; font: inherit; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--mine); border-radius: var(--radius);
+  padding: .5rem .8rem; margin-bottom: .6rem; cursor: pointer; flex-wrap: wrap;
+}
+.next-card:hover { border-color: var(--mine); }
+.next-label { color: var(--mine); font-weight: 700; }
+
+@media (max-width: 760px) {
+  .month { gap: 3px; }
+  .month .cell.sw { min-height: 64px; padding: .2rem; }
+  .chip.slot { font-size: .64rem; padding: .12rem .15rem; text-align: center; letter-spacing: -.01em; }
+  .credits-bar { padding: .5rem .75rem; gap: .7rem; margin-bottom: .5rem; }
+  .credits-bar .big { font-size: 1.6rem; min-width: 1.8rem; }
+  .credits-bar strong { font-size: .92rem; }
+  .next-card { padding: .45rem .65rem; gap: .4rem; font-size: .9rem; }
+  .legend { margin-bottom: .4rem; gap: .2rem .7rem; }
+}
+/* columns must never grow with their content (otherwise phones zoom out the whole page) */
+.month { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.month .cell { min-width: 0; }
+.chip.slot { overflow: hidden; text-overflow: clip; white-space: nowrap; }
+@media (max-width: 760px) {
+  /* bottom menu items share the width and may shrink - they must never widen the page */
+  .nav a { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+.next-card .grow { min-width: 8rem; }
+.next-card { overflow: hidden; }
+@media (max-width: 760px) {
+  /* safety net: no single row may push the page wider than the phone */
+  main.app { overflow-x: clip; }
+}
+@media (max-width: 760px) { .chip.slot.mine.noted::after { content: none; } .chip.slot.mine.noted { box-shadow: inset 0 -2px 0 #ffd24d; } }

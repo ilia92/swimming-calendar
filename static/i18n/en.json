@@ -90,7 +90,10 @@
   "cancelled": "Booking cancelled",
   "confirm_cancel": "Cancel your session on {when}?",
   "cancel_closed": "Too late to cancel",
-  "cancel_closed_long": "Cancelling is possible up to {h}h before the start - talk to your coach."
+  "cancel_closed_long": "Cancelling is possible up to {h}h before the start - talk to your coach.",
+  "booked_at": "Booked for {when}",
+  "undo": "Undo",
+  "tap_to_book": "Tap to book"
  },
  "visits": {
   "upcoming": "Upcoming",
@@ -330,7 +333,8 @@
   "free": "free",
   "mine": "mine",
   "full": "full",
-  "hint": "Tap a slot to book."
+  "hint": "Tap a free time to book.",
+  "coach_books": "Your coach does the booking."
  },
  "month": {
   "slots": "{n} slots",
@@ -427,5 +431,11 @@
   "saved": "Note saved",
   "from_coach": "coach",
   "from_swimmer": "swimmer"
+ },
+ "next": {
+  "label": "Next:",
+  "today": "today",
+  "tomorrow": "tomorrow",
+  "in_days": "in {n} days"
  }
 }

@@ -95,12 +95,13 @@ function el(tag, attrs, ...children) {
 const clean = (nodes) => nodes.flat(Infinity).filter((n) => n !== null && n !== undefined && n !== false);
 function render(...nodes) { document.getElementById('app').replaceChildren(...clean(nodes)); }
 
-function toast(msg, kind) {
-  const n = el('div', { class: 'toast ' + (kind || '') }, msg);
+function toast(msg, kind, action) {
+  const n = el('div', { class: 'toast ' + (kind || '') }, el('span', {}, msg),
+    action ? el('button', { type: 'button', class: 'toast-action', onclick: () => { n.remove(); action.fn(); } }, action.label) : null);
   const box = document.getElementById('toasts');
   while (box.children.length >= 2) box.firstChild.remove();
   box.append(n);
-  setTimeout(() => n.remove(), kind === 'error' ? 6000 : 3000);
+  setTimeout(() => n.remove(), action ? 7000 : kind === 'error' ? 6000 : 3000);
 }
 
 const badge = (status, b) => (byCoach(b || {})
@@ -687,8 +688,11 @@ async function viewCalendar() {
   else if (isDayMode()) body = await dayAgenda(r, data);
   else body = weekView(r, data);
   let offBanner = null;
+  let nextUp = null;
   if (!isCoach()) {
     const upcoming = (await api('GET', '/bookings?from=' + todayISO())).bookings;
+    nextUp = upcoming.filter((b) => b.status === 'booked' && new Date(b.date + 'T' + b.end) > new Date())
+      .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0] || null;
     const off = upcoming.filter(byCoach);
     const noted = upcoming.filter((b) => b.status === 'booked' && b.session_note).reverse();
     if (noted.length) {
@@ -704,6 +708,7 @@ async function viewCalendar() {
   }
   render(
     !isCoach() && S.balance ? creditsBar(S.balance) : null,
+    !isCoach() ? nextTraining(nextUp) : null,
     offBanner,
     toolbar,
     !isCoach() ? legend() : null,
@@ -712,12 +717,35 @@ async function viewCalendar() {
     body);
 }
 
+/** Book a free slot with one tap; the toast offers undo while cancelling is still allowed. */
+async function quickBook(s) {
+  if ((s.free_members || []).length) return popup(() => sessionPopup(s.key, s.date));   // joint account: pick who comes
+  try {
+    const out = await api('POST', '/bookings', { session_key: s.key });
+    const b = out.booking;
+    toast(t('book.booked_at', { when: fmtShort(s.date) + ' ' + s.start }), '', b.can_cancel
+      ? { label: t('book.undo'), fn: () => act(() => api('DELETE', '/bookings/' + b.id), t('book.cancelled')) } : null);
+    await refreshAll();
+  } catch (e) { toast(errText(e), 'error'); }
+}
+
+function nextTraining(b) {
+  if (!b) return null;
+  const days = Math.round((parseISO(b.date) - parseISO(todayISO())) / 864e5);
+  const when = days === 0 ? t('next.today') : days === 1 ? t('next.tomorrow') : t('next.in_days', { n: days });
+  return el('button', { type: 'button', class: 'next-card', onclick: () => popup(() => sessionPopup(b.session_key, b.date)) },
+    el('span', { class: 'next-label' }, '⏭ ' + t('next.label')),
+    el('strong', {}, fmtShort(b.date) + ' · ' + b.start + '–' + b.end),
+    el('span', { class: 'muted small grow' }, [b.member, b.location].filter(Boolean).join(' · ')),
+    el('span', { class: 'badge booked' }, when));
+}
+
 function legend() {
   return el('div', { class: 'legend' },
     el('span', {}, el('i', { class: 'ev-swatch free' }), t('legend.free')),
     el('span', {}, el('i', { class: 'ev-swatch mine' }), t('legend.mine')),
     el('span', {}, el('i', { class: 'ev-swatch full' }), t('legend.full')),
-    el('span', { class: 'muted small' }, t('legend.hint')));
+    el('span', { class: 'muted small' }, S.settings.swimmers_can_book === false ? t('legend.coach_books') : t('legend.hint')));
 }
 
 function expiryText(bal) {
@@ -887,6 +915,25 @@ function eventBlock(s, lo) {
   h > 54 && (s.title || s.location) ? el('span', { class: 'ev-line dim' }, s.title || s.location) : null);
 }
 
+/** One time in a swimmer's month cell: free -> book, mine/cancelled -> open, otherwise greyed. */
+function slotChip(s) {
+  const own = (s.my_bookings || []).filter((b) => b.status !== 'cancelled');
+  const open = (ev) => { ev.stopPropagation(); popup(() => sessionPopup(s.key, s.date)); };
+  if (own.length) {
+    return el('button', { type: 'button', class: 'chip slot mine' + (s.note ? ' noted' : ''), title: s.note || null, onclick: open },
+      narrow() ? (own.length > 1 ? own.length + '×' : '') + s.start : '✓' + (own.length > 1 ? own.length : '') + ' ' + s.start);   // green = mine
+  }
+  if (byCoach(s.my_booking)) return el('button', { type: 'button', class: 'chip slot x', title: t('status.called_off'), onclick: open }, '✕ ' + s.start);
+  if (s.can_book) {
+    return el('button', {
+      type: 'button', class: 'chip slot free', title: t('book.tap_to_book') + (s.note ? '\n📢 ' + s.note : ''),
+      onclick: (ev) => { ev.stopPropagation(); quickBook(s); },
+    }, s.start, narrow() ? null : el('span', { class: 'slot-free' }, ' · ' + t('sessions.free_short', { n: s.free })));
+  }
+  const why = s.free === 0 ? t('sessions.full') : s.started ? t('session.past') : t('errors.too_far');
+  return el('button', { type: 'button', class: 'chip slot off', title: why, onclick: open }, s.start);
+}
+
 function monthGrid(r, data) {
   const by = {};
   for (const s of data.sessions) (by[s.date] = by[s.date] || []).push(s);
@@ -913,23 +960,20 @@ function monthGrid(r, data) {
         summary.unshift(el('span', { class: 'day-total' + (booked ? ' booked' : '') }, booked + '/' + cap));
       }
     } else {
-      const off = (by[ds] || []).filter((s) => byCoach(s.my_booking));
-      summary = list.filter((s) => s.my_booking && s.my_booking.status !== 'cancelled').map((s) => el('span', { class: 'chip mine', title: s.start },
-        narrow() ? '✓' + ((s.my_bookings || []).length > 1 ? s.my_bookings.length : '') : '✓ ' + s.start))
-        .concat(off.map((s) => el('span', { class: 'chip x', title: t('status.called_off') }, narrow() ? '✕' : '✕ ' + s.start)));
-      const free = list.filter((s) => s.can_book);
-      if (free.length && narrow()) summary.push(el('span', { class: 'chip' }, '+' + free.length));
-      else if (free.length) {
-        const room = Math.max(0, MAX_ROWS - summary.length);
-        summary = summary.concat(free.slice(0, room).map((s) =>
-          el('span', { class: 'chip free' }, s.start + ' · ' + t('sessions.free_short', { n: s.free }))));
-        if (free.length > room) summary.push(el('span', { class: 'more-rows' }, t('month.more', { n: free.length - room })));
-      }
+      const past = ds < todayISO();
+      const slots = (by[ds] || []).filter((s) => {
+        const mine = (s.my_bookings || []).some((b) => b.status !== 'cancelled') || byCoach(s.my_booking);
+        return mine || (!past && !s.cancelled);
+      });
+      const room = narrow() ? 6 : 7;
+      summary = slots.slice(0, room).map((s) => slotChip(s));
+      if (slots.length > room) summary.push(el('span', { class: 'more-rows' }, t('month.more', { n: slots.length - room })));
     }
     if (allCancelled) summary.push(el('span', { class: 'chip x' }, t('sessions.cancelled')));
-    cells.push(el('button', {
-      type: 'button',
-      class: 'cell ' + dayClasses(ds, data.holidays) + (d.getMonth() !== r.first.getMonth() ? ' other' : ''),
+    cells.push(el('div', {
+      role: 'button', tabindex: 0,
+      onkeydown: (ev) => { if (ev.key === 'Enter' && ev.target === ev.currentTarget) popup(() => dayPopup(ds)); },
+      class: 'cell ' + dayClasses(ds, data.holidays) + (d.getMonth() !== r.first.getMonth() ? ' other' : '') + (!isCoach() ? ' sw' : ''),
       title: data.holidays[ds] ? data.holidays[ds][S.lang] : null,
       onclick: () => popup(() => dayPopup(ds)),
     }, el('span', { class: 'num' }, d.getDate()),
