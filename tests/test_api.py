@@ -369,6 +369,9 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.coach.call("PATCH", "/bookings/%s" % bk["id"], {"status": "attended"})[1]["error"], "not_started")
         self.assertEqual(self.coach.call("PATCH", "/bookings/%s" % bk["id"], {"status": "excused"})[1]["error"], "not_started")
         # cancel: the swimmer still sees it, as cancelled by the coach
+        self.coach.ok("PUT", "/overrides/%s" % key, {"note": "Друг басейн - Спартак"})
+        self.assertEqual(a.ok("GET", "/sessions?from=2026-10-29&to=2026-10-29")["sessions"][0]["note"], "Друг басейн - Спартак")
+        self.assertEqual(a.ok("GET", "/bookings")["bookings"][0]["session_note"], "Друг басейн - Спартак")
         self.coach.ok("PUT", "/overrides/%s" % key, {"cancelled": True})
         mine = a.ok("GET", "/sessions?from=2026-10-29&to=2026-10-29")["sessions"][0]["my_booking"]
         self.assertEqual((mine["status"], mine["by_coach"]), ("cancelled", True))

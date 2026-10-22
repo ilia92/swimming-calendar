@@ -74,6 +74,7 @@ def booking_out(d, b, viewer, n=None):
     sess = schedule.get_session(d, b["session_key"])
     out["location"] = sess["location"] if sess else b.get("location", "")
     out["title"] = sess["title"] if sess else b.get("title", "")
+    out["session_note"] = sess["note"] if sess else ""     # the coach's note for the whole training
     out["can_cancel"] = _can_cancel(b, viewer, n, d)
     return out
 

@@ -688,11 +688,18 @@ async function viewCalendar() {
   else body = weekView(r, data);
   let offBanner = null;
   if (!isCoach()) {
-    const off = (await api('GET', '/bookings?from=' + todayISO() + '&status=cancelled')).bookings.filter(byCoach);
+    const upcoming = (await api('GET', '/bookings?from=' + todayISO())).bookings;
+    const off = upcoming.filter(byCoach);
+    const noted = upcoming.filter((b) => b.status === 'booked' && b.session_note).reverse();
+    if (noted.length) {
+      offBanner = el('div', { class: 'notice info note-banner' }, el('strong', {}, '📢 ' + t('session.note_banner')),
+        noted.map((b) => el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(() => sessionPopup(b.session_key, b.date)); } },
+          el('strong', {}, fmtShort(b.date) + ' ' + b.start), ' — ' + b.session_note)));
+    }
     if (off.length) {
-      offBanner = el('div', { class: 'notice off-banner' }, el('strong', {}, '⚠ ' + t('session.off_banner')), ' ',
+      offBanner = [offBanner, el('div', { class: 'notice off-banner' }, el('strong', {}, '⚠ ' + t('session.off_banner')), ' ',
         off.reverse().map((b) => el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(() => sessionPopup(b.session_key, b.date)); } },
-          fmtShort(b.date) + ' ' + b.start)));
+          fmtShort(b.date) + ' ' + b.start)))];
     }
   }
   render(
@@ -869,10 +876,11 @@ function eventBlock(s, lo) {
     class: 'ev ' + state + (s.kind === 'extra' ? ' extra' : ''),
     style: 'top:' + ((s._s - lo) * PX + 1) + 'px;height:' + h + 'px;left:calc(' + (s._lane * width) + '% + 2px);width:calc(' + width + '% - 4px);' +
       (isCoach() && !s.cancelled ? '--fill:' + fill + '%' : ''),
-    title: s.start + '–' + s.end + (s.location ? ' · ' + s.location : ''),
+    title: s.start + '–' + s.end + (s.location ? ' · ' + s.location : '') + (s.note ? '\n📢 ' + s.note : ''),
     onclick: () => popup(() => sessionPopup(s.key, s.date)),
   },
-  el('span', { class: 'ev-time' }, s.start, isCoach() && !s.cancelled ? el('span', { class: 'ev-count' }, s.booked + '/' + s.capacity) : null),
+  el('span', { class: 'ev-time' }, el('span', {}, s.start, s.note ? el('span', { class: 'note-mark' }, ' 📢') : null),
+    isCoach() && !s.cancelled ? el('span', { class: 'ev-count' }, s.booked + '/' + s.capacity) : null),
   h > 34 && isCoach() && !s.cancelled && s.booked ? el('span', { class: 'ev-line ev-avs' }, avatarStack(s.attendees, h > 60 ? 22 : 18, 8)) : null,
   h > 34 && line2 && !(isCoach() && !s.cancelled && s.booked) ? el('span', { class: 'ev-line' }, line2) : null,
   h > 70 && isCoach() && !s.cancelled && s.booked ? el('span', { class: 'ev-line' }, line2) : null,
@@ -898,7 +906,7 @@ function monthGrid(r, data) {
       } else if (list.length) {
         // desktop: one row per slot - time, fill bar, booked/places
         summary = list.slice(0, MAX_ROWS).map((s) => el('span', { class: 'mrow' + (s.booked ? ' has' : '') + (s.free === 0 ? ' full' : '') },
-          el('span', { class: 'mt' }, s.start),
+          el('span', { class: 'mt', title: s.note || null }, s.start, s.note ? '📢' : null),
           s.booked ? avatarStack(s.attendees, 15, 6) : el('span', { class: 'mbar' }, el('i', { style: 'width:0%' })),
           el('span', { class: 'mn' }, s.booked + '/' + s.capacity)));
         if (list.length > MAX_ROWS) summary.push(el('span', { class: 'more-rows' }, t('month.more', { n: list.length - MAX_ROWS })));
@@ -950,7 +958,8 @@ async function dayPopup(ds) {
       isCoach() ? el('span', { class: 'grow row nowrap', style: 'gap:.4rem;min-width:0' }, avatarStack(s.attendees, 24, 10),
         el('span', { class: 'muted small ellipsis' }, s.attendees.filter((a) => a.status !== 'cancelled').map((a) => a.member || a.name).join(', ')))
         : el('span', { class: 'muted small grow' }, [s.title, s.location].filter(Boolean).join(' · ')),
-      right);
+      right,
+      s.note ? el('div', { class: 'row-notes visit-note coach' }, '📢 ' + s.note) : null);
   });
   return [
     el('h3', { class: isWeekend(ds) || hol ? 'red' : '' }, fmtDay(ds)),
@@ -975,7 +984,7 @@ function sessionHead(s, inline) {
     inline ? null : el('div', { class: 'muted small' }, [s.title, s.location, S.me.is_admin ? s.coach_name : null].filter(Boolean).join(' · ')),
     s.holiday ? el('p', { class: 'notice info' }, '🎉 ' + s.holiday[S.lang]) : null,
     s.cancelled && !(s.called_off || []).length ? el('p', { class: 'notice' }, s.cancel_reason === 'holiday' ? t('sessions.holiday', { name: s.holiday ? s.holiday[S.lang] : '' }) : t('sessions.cancelled')) : null,
-    s.note ? el('p', { class: 'notice info' }, '📝 ' + s.note) : null,
+    s.note ? el('p', { class: 'notice info session-note' }, '📢 ' + s.note) : null,
     el('div', { class: 'cap' }, el('div', { class: 'meter' }, el('span', { style: 'width:' + Math.min(100, s.booked / s.capacity * 100) + '%' })),
       inline ? null : el('span', { class: 'small nowrap' }, t('session.places', { booked: s.booked, capacity: s.capacity }))),
   ];
@@ -1178,7 +1187,7 @@ async function coachSessionBody(s, swimmers) {
     onchange: (ev) => { if (Number(ev.target.value) !== s.capacity) saveOverride({ capacity: Number(ev.target.value) }); },
   });
   const note = el('input', {
-    value: s.note, maxlength: 300, placeholder: t('calendar.note_ph'),
+    value: s.note, maxlength: 300, placeholder: t('session.note_ph'),
     onchange: (ev) => { if (ev.target.value !== s.note) saveOverride({ note: ev.target.value }); },
     onkeydown: (ev) => { if (ev.key === 'Enter') ev.target.blur(); },
   });
@@ -1193,7 +1202,7 @@ async function coachSessionBody(s, swimmers) {
       h2(t('session.manage')),
       el('div', { class: 'manage-row' },
         field(t('fields.capacity'), capacity),
-        field(t('fields.note'), note)),
+        field(t('session.note_label'), note)),
       el('div', { class: 'actions' },
         s.overridden ? btn(t('calendar.reset_session'), () => act(() => api('DELETE', '/overrides/' + encodeURIComponent(s.key)), t('common.saved')), 'ghost small') : null,
         // a training with people in it can only be cancelled (they get notified), never deleted
@@ -1407,6 +1416,7 @@ function bookingRow(b, withCancel) {
     b.member ? el('span', { class: 'small members-tag' }, '👤 ' + b.member) : null,
     el('span', { class: 'muted small grow' }, [b.title, b.location].filter(Boolean).join(' · ')),
     badge(b.status, b),
+    b.session_note && b.status === 'booked' ? el('div', { class: 'row-notes visit-note coach' }, '📢 ' + b.session_note) : null,
     visitNotes(b, { who: true }).some(Boolean) ? el('div', { class: 'row-notes' }, visitNotes(b, { who: true })) : null,
     withCancel && b.can_cancel ? btn(t('book.cancel'), async () => {
       if (await confirmDialog(t('book.confirm_cancel', { when: fmtShort(b.date) + ' ' + b.start }), t('book.cancel'), true)) {

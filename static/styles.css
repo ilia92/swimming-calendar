@@ -727,3 +727,12 @@ input.switch:checked::after { transform: translateX(18px); }
   .cal-actions { width: 100%; }
   .cal-actions .btn { flex: 1; justify-content: center; }
 }
+
+/* =================================================================== v11: training notes */
+.note-mark { font-size: .75rem; }
+.ev-time > span:first-child { white-space: nowrap; }
+.note-banner { display: grid; gap: .25rem; margin-bottom: .6rem; }
+.note-banner a { color: inherit; text-decoration: none; }
+.note-banner a:hover { text-decoration: underline; }
+.session-note { font-weight: 600; }
+.manage-row { grid-template-columns: 6rem minmax(0, 1fr); }

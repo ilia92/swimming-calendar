@@ -356,7 +356,10 @@
   "off_banner": "Cancelled trainings:",
   "confirm_delete": "Delete the training on {when}? It disappears from the calendar.",
   "who_comes": "who is coming?",
-  "confirm_no_show": "Are you sure? {name} will be marked as a no-show - this uses up 1 visit from the card."
+  "confirm_no_show": "Are you sure? {name} will be marked as a no-show - this uses up 1 visit from the card.",
+  "note_label": "📢 Training note (swimmers see it)",
+  "note_ph": "e.g. “Today at the Spartak pool, lane 3”",
+  "note_banner": "Messages from your coach:"
  },
  "swimmer": {
   "overview": "Overview",
