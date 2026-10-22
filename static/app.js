@@ -474,6 +474,8 @@ async function refreshAll() {
 
 const isCoach = () => S.me && S.me.role === 'coach';
 
+const NAV_ICONS = { calendar: '📅', swimmers: '👥', stats: '📊', visits: '🎟️' };
+
 function navItems() {
   if (!S.me) return [];
   if (isCoach()) return [['calendar', 'nav.calendar'], ['swimmers', 'nav.swimmers'], ['stats', 'nav.stats']];
@@ -503,10 +505,13 @@ function renderShell() {
   const nav = document.getElementById('nav');
   const current = S.route.split('/')[0];
   if (isCoach()) {
-    nav.replaceChildren(...navItems().map(([r, k]) => el('a', { href: '#/' + r, class: current === r ? 'active' : '' }, t(k))));
+    nav.replaceChildren(...navItems().map(([r, k]) => el('a', { href: '#/' + r, class: current === r ? 'active' : '' },
+      el('span', { class: 'nav-ico', 'aria-hidden': 'true' }, NAV_ICONS[r]), el('span', { class: 'nav-txt' }, t(k)))));
   } else {
-    nav.replaceChildren(el('a', { href: '#/calendar', class: 'active' }, t('nav.calendar')),
-      el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(myVisitsPopup); } }, t('nav.visits'),
+    nav.replaceChildren(el('a', { href: '#/calendar', class: 'active' }, el('span', { class: 'nav-ico', 'aria-hidden': 'true' }, NAV_ICONS.calendar),
+      el('span', { class: 'nav-txt' }, t('nav.calendar'))),
+      el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(myVisitsPopup); } }, el('span', { class: 'nav-ico', 'aria-hidden': 'true' }, NAV_ICONS.visits),
+        el('span', { class: 'nav-txt' }, t('nav.visits')),
         S.attention ? el('span', { class: 'nav-badge' }, S.attention) : null));
   }
 }
@@ -576,7 +581,7 @@ function showLogin() {
   el('p', { class: 'muted small', style: 'text-align:center;margin:0' }, t('login.forgot')),
   flagButtons());
   render(el('div', { class: 'login-wrap' }, el('div', { class: 'card login' },
-    el('div', { class: 'logo-big' }, '🏊'), el('h1', {}, t('app.title')), form)));
+    el('div', { class: 'logo-big' }, '🏊'), el('h1', {}, t('app.title')), el('p', { class: 'muted login-sub' }, t('login.tagline')), form)));
 }
 
 function passwordForm(onDone) {
@@ -843,7 +848,7 @@ function creditsBar(bal) {
   const exp = expiryText(bal);
   const pct = bal.total ? Math.round(bal.available / Math.max(1, bal.available + bal.used + bal.reserved) * 100) : 0;
   return el('div', { class: 'credits-bar' + (bal.low ? ' low' : ''), onclick: isCoach() ? null : () => popup(myVisitsPopup) },
-    el('span', { class: 'big' }, String(bal.available)),
+    el('span', { class: 'big ring', style: '--pct:' + pct, title: pct + '%' }, el('span', {}, String(bal.available))),
     el('div', { class: 'grow' },
       el('div', {}, el('strong', {}, t('credits.left_of', { left: bal.available, total: bal.total })),
         exp ? el('span', { class: 'expiry' + (exp.soon ? ' soon' : '') }, ' · ' + (exp.soon ? '⏰ ' : '') + exp.text) : null,
