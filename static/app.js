@@ -474,11 +474,11 @@ async function refreshAll() {
 
 const isCoach = () => S.me && S.me.role === 'coach';
 
-const NAV_ICONS = { calendar: '📅', swimmers: '👥', stats: '📊', visits: '🎟️' };
+const NAV_ICONS = { today: '📍', calendar: '📅', swimmers: '👥', stats: '📊', visits: '🎟️' };
 
 function navItems() {
   if (!S.me) return [];
-  if (isCoach()) return [['calendar', 'nav.calendar'], ['swimmers', 'nav.swimmers'], ['stats', 'nav.stats']];
+  if (isCoach()) return [['today', 'nav.today'], ['calendar', 'nav.calendar'], ['swimmers', 'nav.swimmers'], ['stats', 'nav.stats']];
   return [['calendar', 'nav.calendar']];
 }
 
@@ -616,7 +616,7 @@ function showForcedPasswordChange() {
 
 // ------------------------------------------------------------------ router
 
-const ROUTES = { calendar: viewCalendar, swimmers: viewSwimmers, stats: viewStats };
+const ROUTES = { today: viewToday, calendar: viewCalendar, swimmers: viewSwimmers, stats: viewStats };
 
 async function refresh() {
   if (!S.me) return showLogin();
@@ -624,7 +624,7 @@ async function refresh() {
   const raw = location.hash.replace(/^#\/?/, '');
   const name = raw.split('/')[0];
   if (!ROUTES[name] || !navItems().some(([r]) => r === name)) {
-    location.replace('#/calendar');
+    location.replace(isCoach() ? '#/today' : '#/calendar');
     return;
   }
   S.route = raw;
@@ -665,6 +665,11 @@ document.addEventListener('touchend', (ev) => {
   if (Math.abs(dx) > 70 && Math.abs(dy) < 45 && Date.now() - touch.t < 600) shiftCal(dx < 0 ? 1 : -1);   // swipe = next / previous
   touch = null;
 }, { passive: true });
+
+setInterval(() => {
+  if (S.route === 'today' && !D.node.open && !document.getElementById('confirm').open &&
+    !(document.activeElement && document.activeElement.matches('input, textarea, select'))) refresh();
+}, 30000);
 
 let lastNarrow = narrow();
 window.addEventListener('resize', () => {
@@ -737,6 +742,7 @@ async function viewCalendar() {
       (m) => { S.calMode = m; localSet('calMode2', m); refresh(); })),
     isCoach() ? el('div', { class: 'cal-actions row' },
       btn('🕒 ' + t('availability.button'), () => popup(availabilityPopup), 'small'),
+      btn('🌴 ' + t('absence.button'), () => popup(absencePopup), 'small'),
       btn('+ ' + t('slot.create'), () => popup(() => createSlotPopup(S.calMode === 'month' || iso(S.anchor) < todayISO() ? todayISO() : iso(S.anchor), '17:00')), 'small primary')) : null);
 
   let body;
@@ -759,7 +765,18 @@ async function viewCalendar() {
     const recent = (await api('GET', '/bookings?from=' + iso(addDays(parseISO(todayISO()), -(S.settings.ack_window_days || 3) - 1)))).bookings;
     const att = (await api('GET', '/bookings?attention=1')).bookings;
     const toConfirm = recent.filter((b) => b.can_ack && !(b.ack || {}).status);
-    S.attention = att.length + toConfirm.length;
+    const promoted = att.filter((b) => b.waitlist_notice);
+    const unread = (await api('GET', '/messages')).messages.filter((m) => !m.read);
+    S.attention = att.length + toConfirm.length + unread.length;
+    if (promoted.length || unread.length) {
+      offBanner = el('div', {}, unread.map((m) => el('div', { class: 'notice info msg-banner' },
+        el('div', { class: 'grow' }, el('strong', {}, '📣 ' + m.from + ': '), m.text, el('div', { class: 'muted small' }, fmtTs(m.created_at))),
+        btn(t('ack.seen'), () => act(() => api('POST', '/messages/' + m.id + '/read'), null), 'small'))),
+      promoted.length ? el('div', { class: 'notice wait-banner' }, el('strong', { class: 'grow' }, '🎉 ' + t('wait.promoted') + ' '),
+        promoted.map((b) => el('span', { class: 'nowrap' }, fmtShort(b.date) + ' ' + b.start + (b.member ? ' (' + b.member + ')' : '') + ' ')),
+        btn(t('ack.seen'), () => act(async () => { for (const b of promoted) await api('POST', '/bookings/' + b.id + '/ack', { action: 'seen' }); }, null), 'small')) : null);
+    }
+    att.splice(0, att.length, ...att.filter((b) => !b.waitlist_notice));
     renderShell();
     if (att.length || toConfirm.length) {
       ackBanner = el('div', { class: 'notice info ack-banner' },
@@ -774,6 +791,8 @@ async function viewCalendar() {
     const upcoming = (await api('GET', '/bookings?from=' + todayISO())).bookings;
     nextUp = upcoming.filter((b) => b.status === 'booked' && new Date(b.date + 'T' + b.end) > new Date())
       .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0] || null;
+    const msgBanner = offBanner;
+    offBanner = null;
     const off = upcoming.filter(byCoach);
     const noted = upcoming.filter((b) => b.status === 'booked' && b.session_note).reverse();
     if (noted.length) {
@@ -786,6 +805,7 @@ async function viewCalendar() {
         off.reverse().map((b) => el('a', { href: '#', onclick: (ev) => { ev.preventDefault(); popup(() => sessionPopup(b.session_key, b.date)); } },
           fmtShort(b.date) + ' ' + b.start)))];
     }
+    offBanner = [msgBanner, offBanner];
   }
   render(
     !isCoach() && S.balance ? creditsBar(S.balance) : null,
@@ -1012,7 +1032,8 @@ function slotChip(s) {
       onclick: (ev) => { ev.stopPropagation(); quickBook(s); },
     }, s.start, narrow() ? null : el('span', { class: 'slot-free' }, ' · ' + t('sessions.free_short', { n: s.free })));
   }
-  const why = s.free === 0 ? t('sessions.full') : s.started ? t('session.past') : t('errors.too_far');
+  if ((s.my_waitlist || []).length) return el('button', { type: 'button', class: 'chip slot wait', title: t('wait.on_list', { pos: s.my_waitlist[0].position }), onclick: open }, '⏳' + s.start);
+  const why = s.free === 0 ? t('sessions.full') + ' · ' + t('wait.join') : s.started ? t('session.past') : t('errors.too_far');
   return el('button', { type: 'button', class: 'chip slot off', title: why, onclick: open }, s.start);
 }
 
@@ -1171,13 +1192,16 @@ function swimmerSessionBody(s, inline) {
     const picks = members.slice(0, s.free).map((m) => el('label', { class: 'member-pick' },
       el('input', { type: 'checkbox', value: m, checked: true }), el('span', {}, m)));
     const hint = el('p', { class: 'muted small book-hint' });
+    const repeat = !inline && s.kind === 'slot' ? el('select', { class: 'auto repeat-sel', 'aria-label': t('repeat.label') },
+      [1, 4, 8].map((w) => el('option', { value: w }, w === 1 ? t('repeat.once') : t('repeat.weeks', { n: w })))) : null;
     const bookBtn = btn(t('book.book'), async () => {
-        const body = { session_key: s.key };
+        const body = { session_key: s.key, repeat_weeks: repeat ? Number(repeat.value) : 1 };
         if (members.length) {
           body.members = picks.map((p) => p.querySelector('input')).filter((c) => c.checked).map((c) => c.value);
           if (!body.members.length) { toast(t('errors.pick_members'), 'error'); return; }
         }
-        act(() => api('POST', '/bookings', body), t('book.booked'));
+        act(() => api('POST', '/bookings', body), (r) => (r && body.repeat_weeks > 1
+          ? t('repeat.done', { n: new Set(r.bookings.map((b) => b.date)).size, skipped: (r.skipped || []).length }) : t('book.booked')));
       }, 'primary');
     // one visit per person: keep the hint and the button in step with the ticked members
     const update = () => {
@@ -1190,7 +1214,19 @@ function swimmerSessionBody(s, inline) {
     picks.forEach((p) => p.querySelector('input').addEventListener('change', update));
     update();
     if (!inline || members.length) out.push(hint);
-    out.push(el('div', { class: 'book-row' }, picks.length ? el('div', { class: 'member-picks' }, picks) : null, bookBtn));
+    out.push(el('div', { class: 'book-row' }, picks.length ? el('div', { class: 'member-picks' }, picks) : null, repeat, bookBtn));
+  } else if ((s.my_waitlist || []).length) {
+    out.push(el('div', { class: 'wait-box' }, s.my_waitlist.map((w) => el('div', { class: 'row' },
+      el('span', { class: 'grow' }, '⏳ ' + t('wait.on_list', { pos: w.position }) + (w.member ? ' · ' + w.member : '')),
+      btn(t('wait.leave'), () => act(() => api('DELETE', '/waitlist/' + w.id), t('wait.left')), 'small ghost danger')))));
+  } else if (!s.started && !s.cancelled && s.free === 0 && S.settings.swimmers_can_book !== false) {
+    out.push(el('p', { class: 'muted small' }, t('wait.hint')));
+    out.push(el('div', { class: 'actions' }, btn('⏳ ' + t('wait.join'), async () => {
+      const members = S.me.members || [];
+      const who = members.length ? await pickMembers(S.me, members) : [null];
+      if (!who || !who.length) return;
+      act(async () => { for (const m of who) await api('POST', '/waitlist', { session_key: s.key, member: m }); }, t('wait.joined'));
+    }, 'primary')));
   } else if (!own.length && !s.cancelled) {
     out.push(el('p', { class: 'muted small' }, s.started ? t('session.past') : s.free === 0 ? t('sessions.full') : t('errors.too_far')));
   }
@@ -1336,6 +1372,7 @@ async function coachSessionBody(s, swimmers) {
     s.called_off && s.called_off.length ? el('p', { class: 'notice' },
       t('session.called_off_coach', { names: s.called_off.join(', ') })) : null,
     h2(t('session.swimmers') + ' (' + listed.length + ')'),
+    (s.waitlist || []).length ? el('p', { class: 'muted small' }, '⏳ ' + t('wait.coach_list', { names: s.waitlist.join(', ') })) : null,
     listed.length ? el('div', { class: 'atts' }, listed.map((a) => attendeeCard(s, a))) : el('p', { class: 'muted' }, t('calendar.nobody')),
     add,
     el('section', { class: 'manage' },
@@ -1863,7 +1900,8 @@ async function viewSwimmers() {
   fill();
   render(
     el('div', { class: 'row between' }, el('h1', {}, t('swimmers.title', { n: out.swimmers.filter((s) => s.active).length })),
-      btn('+ ' + t('swimmers.new'), () => popup(newSwimmerPopup), 'primary')),
+      el('div', { class: 'row' }, btn('📣 ' + t('msg.button'), () => popup(() => messagePopup('all')), 'small'),
+        btn('+ ' + t('swimmers.new'), () => popup(newSwimmerPopup), 'primary'))),
     el('div', { class: 'row', style: 'margin-bottom:.4rem' }, search, sortSel,
       el('label', { class: 'check small' }, el('input', {
         type: 'checkbox', checked: showInactive, onchange: (ev) => { localSet('showInactive', ev.target.checked ? '1' : '0'); refresh(); },
@@ -2123,10 +2161,11 @@ function statsRange(scope) {
 async function viewStats() {
   const tab = localGet('statsTab') || 'stats';
   const top = el('div', { class: 'row between' }, el('h1', {}, t('nav.stats')),
-    tabs([['stats', t('stats.title')], ['reports', t('reports.title')], ['log', t('reports.audit')]], tab,
+    tabs([['stats', t('stats.title')], ['insights', '💡 ' + t('insights.title')], ['reports', t('reports.title')], ['log', t('reports.audit')]], tab,
       (k) => { localSet('statsTab', k); refresh(); }));
   let body;
-  if (tab === 'reports') body = await reportsBody();
+  if (tab === 'insights') body = await insightsBody();
+  else if (tab === 'reports') body = await reportsBody();
   else if (tab === 'log') body = await auditBody();
   else body = await statsBody();
   render(top, body);
@@ -2201,6 +2240,192 @@ async function auditBody() {
       el('td', { class: 'small' }, S.strings['audit.' + e.action] ? t('audit.' + e.action) : e.action),
       el('td', { class: 'small muted' }, e.target_name || (e.details && e.details.new ? t('status.' + e.details.new) : ''))))))
     : el('p', { class: 'muted' }, t('reports.no_audit')));
+}
+
+// ------------------------------------------------------------------ coach: Today (pool deck)
+
+function sessionPhase(s) {
+  const now = new Date();
+  const start = new Date(s.date + 'T' + s.start);
+  const end = new Date(s.date + 'T' + s.end);
+  const minsTo = Math.round((start - now) / 60000);
+  if (now >= end) return { key: 'done', text: t('today.done') };
+  if (now >= start) return { key: 'live', text: t('today.live', { n: Math.max(1, Math.round((end - now) / 60000)) }) };
+  return { key: 'next', text: minsTo < 60 ? t('today.in_min', { n: minsTo }) : t('today.at', { time: s.start }), checkin: minsTo <= (S.settings.checkin_early_minutes || 15) };
+}
+
+async function viewToday() {
+  const ds = todayISO();
+  const [data, sw] = await Promise.all([api('GET', '/sessions?from=' + ds + '&to=' + ds + '&detail=1'), api('GET', '/swimmers')]);
+  const list = data.sessions.filter((s) => !s.cancelled);
+  const all = list.flatMap((s) => s.attendees.filter((a) => a.status !== 'cancelled'));
+  const here = all.filter((a) => a.status === 'attended' && a.checked).length;
+  const noShow = all.filter((a) => a.status === 'no_show').length;
+  const open = list.filter((s) => sessionPhase(s).key !== 'done');
+  const done = list.filter((s) => sessionPhase(s).key === 'done');
+  render(
+    el('div', { class: 'today-head' },
+      el('div', {}, el('h1', {}, '📍 ' + t('nav.today')), el('div', { class: 'muted' }, fmtDay(ds))),
+      el('div', { class: 'row' }, btn('📣 ' + t('msg.to_today'), () => popup(() => messagePopup('day', ds)), 'small'))),
+    el('div', { class: 'today-stats' },
+      el('span', {}, el('strong', {}, list.length), ' ' + t('today.trainings')),
+      el('span', {}, el('strong', {}, all.length), ' ' + t('today.booked')),
+      el('span', { class: 'ok-text' }, el('strong', {}, here), ' ' + t('today.here')),
+      noShow ? el('span', { class: 'warn-text' }, el('strong', {}, noShow), ' ' + t('status.no_show')) : null),
+    data.holidays[ds] ? el('p', { class: 'notice info' }, '🎉 ' + data.holidays[ds][S.lang]) : null,
+    list.length ? null : el('div', { class: 'card empty' }, t('today.none'), ' ',
+      el('a', { href: '#/calendar' }, t('today.to_calendar'))),
+    open.map((s, i) => todayCard(s, sw.swimmers, i === 0)),
+    done.length ? el('details', { class: 'today-done', open: !open.length },
+      el('summary', {}, t('today.finished', { n: done.length })), done.map((s) => todayCard(s, sw.swimmers, false))) : null);
+}
+
+function todayCard(s, swimmers, first) {
+  const ph = sessionPhase(s);
+  const listed = s.attendees.filter((a) => a.status !== 'cancelled' || a.pending);
+  const canCheck = ph.key !== 'next' || ph.checkin;
+  const late = ph.key === 'live' && (new Date() - new Date(s.date + 'T' + s.start)) > 5 * 60000;
+  const rows = listed.map((a) => {
+    const isHere = a.status === 'attended' && a.checked;
+    const name = a.member || a.name;
+    return el('div', { class: 'today-row' + (isHere ? ' here' : '') + (a.status === 'no_show' ? ' gone' : '') },
+      avatar({ id: a.swimmer_id, name, avatar: a.avatar }, 40),
+      el('div', { class: 'grow', onclick: () => popup(() => swimmerPopup(a.swimmer_id)) },
+        el('strong', {}, name), a.member ? el('span', { class: 'muted small' }, ' · ' + a.name) : null,
+        el('div', { class: 'small muted' },
+          a.credits && a.credits.low ? el('span', { class: 'warn-text' }, '⚠ ' + t('credits.left_short', { n: a.credits.available }) + ' ') : null,
+          a.swimmer_note ? '✉️ ' + a.swimmer_note : (a.last_comment ? '💬 ' + a.last_comment.text : ''))),
+      late && !isHere && a.status !== 'no_show' && a.phone ? el('a', { class: 'btn small', href: 'tel:' + a.phone, title: a.phone }, '📞') : null,
+      canCheck ? el('button', {
+        type: 'button', class: 'checkin' + (isHere ? ' on' : ''),
+        onclick: () => (isHere ? null : changeStatus(a.booking_id, a.status, 'attended', name, a.protected)),
+      }, isHere ? '✓ ' + t('today.is_here') : t('today.check_in')) : el('span', { class: 'muted small' }, t('today.opens', { time: hhmm(Math.max(0, mins(s.start) - (S.settings.checkin_early_minutes || 15))) })),
+      canCheck && !isHere && a.status !== 'no_show' ? btn('✗', () => changeStatus(a.booking_id, a.status, 'no_show', name, a.protected), 'small ghost danger icon') : null);
+  });
+  const unmarked = ph.key === 'done' ? listed.filter((a) => a.status === 'attended' && !a.checked) : [];
+  const booked = new Set(listed.map((a) => a.swimmer_id + '|' + (a.member || '')));
+  const avail = swimmers.filter((x) => x.coach_id === s.coach_id &&
+    ((x.members || []).length ? x.members.some((m) => !booked.has(x.id + '|' + m)) : !booked.has(x.id + '|')));
+  const walkIn = canCheck && avail.length ? combo({
+    items: avail, placeholder: '+ ' + t('today.walk_in'),
+    text: (x) => x.name + ' ' + x.username + ' ' + (x.members || []).join(' '),
+    row: (x) => el('span', { class: 'opt-row' }, avatar(x, 26), el('span', { class: 'grow ellipsis' }, el('strong', {}, x.name)),
+      el('span', { class: 'badge ' + (x.balance.available > 0 ? 'ok' : 'danger') }, t('credits.left_short', { n: x.balance.available }))),
+    onChoose: async (x) => {
+      const body = { session_key: s.key, swimmer_id: x.id, force: true };
+      if ((x.members || []).length) {
+        body.members = await pickMembers(x, x.members.filter((m) => !booked.has(x.id + '|' + m)));
+        if (!body.members || !body.members.length) return;
+      }
+      act(async () => {
+        const r = await api('POST', '/bookings', body);       // walk-in: book and check in at once
+        for (const b of r.bookings) await api('PATCH', '/bookings/' + b.id, { status: 'attended' });
+      }, t('today.walked_in', { name: x.name }));
+    },
+  }) : null;
+  return el('section', { class: 'today-card ' + ph.key + (first ? ' first' : '') },
+    el('div', { class: 'today-card-head' },
+      el('strong', { class: 'agenda-time' }, s.start + '–' + s.end),
+      el('span', { class: 'phase ' + ph.key }, ph.text),
+      el('span', { class: 'muted small grow' }, [s.title, s.location].filter(Boolean).join(' · ')),
+      el('span', { class: 'small nowrap' }, listed.length + '/' + s.capacity),
+      btn('⋯', () => popup(() => sessionPopup(s.key, s.date)), 'small ghost icon')),
+    s.note ? el('div', { class: 'visit-note coach small' }, '📢 ' + s.note) : null,
+    unmarked.length ? el('div', { class: 'notice end-prompt' }, el('span', { class: 'grow' }, t('today.unmarked', { n: unmarked.length })),
+      btn(t('today.all_here'), () => act(async () => {
+        for (const a of unmarked) await api('PATCH', '/bookings/' + a.booking_id, { status: 'attended' });
+      }, t('common.saved')), 'small primary')) : null,
+    rows.length ? el('div', { class: 'today-rows' }, rows) : el('p', { class: 'muted' }, t('calendar.nobody')),
+    walkIn ? el('div', { class: 'add-box' }, walkIn) : null);
+}
+
+// ------------------------------------------------------------------ coach: absence, messages, insights
+
+async function absencePopup() {
+  const out = await api('GET', '/absences');
+  const form = el('form', {
+    class: 'form', onsubmit: async (ev) => {
+      ev.preventDefault();
+      const v = formData(form);
+      if (v.to < v.from) { toast(t('errors.invalid_range'), 'error'); return; }
+      if (!(await confirmDialog(t('absence.confirm', { from: fmtDate(v.from), to: fmtDate(v.to) }), t('absence.create'), true))) return;
+      const r = await act(() => api('POST', '/absences', { from: v.from, to: v.to, reason: v.reason, extend_cards: v.extend }),
+        (x) => t('absence.created', { s: x.absence.sessions, b: x.absence.cancelled_bookings, c: x.absence.extended.length }));
+      if (r) renderDialog();
+    },
+  },
+  el('div', { class: 'form cols' },
+    field(t('absence.from'), datePicker('from', todayISO())),
+    field(t('absence.to'), datePicker('to', todayISO()))),
+  field(t('absence.reason'), el('input', { name: 'reason', maxlength: 200, placeholder: t('absence.reason_ph') })),
+  el('label', { class: 'check' }, el('input', { type: 'checkbox', name: 'extend', checked: true }), t('absence.extend')),
+  el('div', { class: 'actions' }, el('button', { class: 'btn primary', type: 'submit' }, '🌴 ' + t('absence.create'))));
+  return [
+    el('h3', {}, '🌴 ' + t('absence.title')),
+    el('p', { class: 'muted small' }, t('absence.hint')),
+    form,
+    out.absences.length ? [h2(t('absence.list')), el('ul', { class: 'list' }, out.absences.map((a) => el('li', {},
+      el('strong', {}, fmtDate(a.from) + ' – ' + fmtDate(a.to)),
+      el('span', { class: 'muted small grow' }, [a.reason, t('absence.summary', { c: a.extended.length, d: a.days })].filter(Boolean).join(' · ')),
+      btn(t('absence.undo'), async () => {
+        if (await confirmDialog(t('absence.undo_confirm'), t('absence.undo'), true)) act(() => api('DELETE', '/absences/' + a.id), t('absence.undone'));
+      }, 'small ghost danger'))))] : null,
+  ];
+}
+
+async function messagePopup(audience, day) {
+  const sent = (await api('GET', '/messages')).messages.slice(0, 15);
+  const dateField = field(t('msg.date'), datePicker('date', day || todayISO()));
+  const sel = el('select', { name: 'audience', onchange: () => dateField.classList.toggle('hidden', sel.value !== 'day') },
+    el('option', { value: 'all', selected: audience === 'all' }, t('msg.all')), el('option', { value: 'day', selected: audience === 'day' }, t('msg.day')));
+  dateField.classList.toggle('hidden', audience !== 'day');
+  const form = el('form', {
+    class: 'form', onsubmit: async (ev) => {
+      ev.preventDefault();
+      const v = formData(form);
+      if (await act(() => api('POST', '/messages', { text: v.text, audience: v.audience, date: v.date }),
+        (r) => t('msg.sent', { n: r.message.recipients.length }))) renderDialog();
+    },
+  },
+  el('textarea', { name: 'text', required: true, maxlength: 1000, placeholder: t('msg.placeholder') }),
+  el('div', { class: 'form cols' }, field(t('msg.to'), sel), dateField),
+  el('div', { class: 'actions' }, el('button', { class: 'btn primary', type: 'submit' }, '📣 ' + t('msg.send'))));
+  return [
+    el('h3', {}, '📣 ' + t('msg.title')),
+    el('p', { class: 'muted small' }, t('msg.hint')),
+    form,
+    sent.length ? [h2(t('msg.sent_list')), el('ul', { class: 'list' }, sent.map((m) => el('li', {},
+      el('div', { class: 'grow' }, el('div', {}, m.text), el('div', { class: 'muted small' }, fmtTs(m.created_at) + ' · ' +
+        (m.audience === 'day' ? t('msg.day_of', { date: fmtShort(m.date) }) : t('msg.all')))),
+      el('span', { class: 'badge ' + (m.read_count === m.recipient_count ? 'ok' : ''), title: m.unread_names.join(', ') },
+        t('msg.read', { r: m.read_count, n: m.recipient_count })))))] : null,
+  ];
+}
+
+async function insightsBody() {
+  const ins = await api('GET', '/insights');
+  const person = (r, extra) => el('li', { class: 'clickable', onclick: () => popup(() => swimmerPopup(r.id)) },
+    avatar(r, 30), el('strong', { class: 'grow' }, r.name), el('span', { class: 'muted small' }, extra),
+    r.phone ? el('a', { class: 'btn small ghost', href: 'tel:' + r.phone, onclick: (ev) => ev.stopPropagation() }, '📞') : null);
+  const section = (title, hint, rows) => el('div', { class: 'card' }, h2(title), el('p', { class: 'muted small' }, hint),
+    rows.length ? el('ul', { class: 'list' }, rows) : el('p', { class: 'muted' }, t('insights.none')));
+  const maxOcc = Math.max(0.01, ...ins.occupancy_by_weekday.map((x) => x || 0));
+  return [
+    el('div', { class: 'grid two' },
+      section('😴 ' + t('insights.inactive'), t('insights.inactive_hint'),
+        ins.inactive.map((r) => person(r, r.last_visit ? t('insights.last', { date: fmtShort(r.last_visit) }) : t('insights.never')))),
+      section('⏰ ' + t('insights.expiring'), t('insights.expiring_hint'),
+        ins.expiring.map((r) => person(r, t('insights.expires', { n: r.remaining, date: fmtShort(r.expires) })))),
+      section('⚠ ' + t('insights.low'), t('insights.low_hint'),
+        ins.low.map((r) => person(r, t('credits.left_short', { n: r.available })))),
+      el('div', { class: 'card' }, h2('🔥 ' + t('insights.busiest')), el('p', { class: 'muted small' }, t('insights.weeks')),
+        ins.busiest.length ? el('div', { class: 'row' }, ins.busiest.map(([tm, n]) => el('span', { class: 'chip booked big-chip' }, tm + ' · ' + n)))
+          : el('p', { class: 'muted' }, t('stats.no_data')),
+        h2(t('insights.occupancy')),
+        el('div', { class: 'bars' }, ins.occupancy_by_weekday.map((x, i) => el('div', { class: 'bar' + (i >= 5 ? ' weekend' : '') },
+          el('span', {}, weekdayName(i)), el('div', { class: 'track' }, el('div', { class: 'fill', style: 'width:' + ((x || 0) / maxOcc * 100) + '%' })),
+          el('span', { class: 'num' }, x === null ? '—' : Math.round(x * 100) + '%')))))),
+  ];
 }
 
 // ------------------------------------------------------------------ boot

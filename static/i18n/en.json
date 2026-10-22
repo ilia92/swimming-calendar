@@ -12,7 +12,8 @@
   "account": "Account",
   "book": "Sessions",
   "visits": "My visits",
-  "logout": "Log out"
+  "logout": "Log out",
+  "today": "Today"
  },
  "common": {
   "ok": "OK",
@@ -279,7 +280,11 @@
   "visit_approve": "change approved",
   "visit_reject": "change rejected",
   "visit_seen": "reviewed",
-  "dispute_resolved": "dispute resolved"
+  "dispute_resolved": "dispute resolved",
+  "waitlist_joined": "waiting list",
+  "absence_created": "absence",
+  "absence_removed": "absence undone",
+  "message_sent": "message"
  },
  "errors": {
   "network": "Cannot reach the server.",
@@ -323,7 +328,9 @@
   "self_booking_disabled": "Your coach does the booking - please contact them.",
   "ack_closed": "The confirmation period has ended.",
   "no_request": "Nothing to approve.",
-  "not_disputed": "This visit is not disputed."
+  "not_disputed": "This visit is not disputed.",
+  "already_waiting": "You are already on the waiting list.",
+  "no_recipients": "Nobody to send to."
  },
  "availability": {
   "button": "Availability",
@@ -505,6 +512,92 @@
   "review": "Review",
   "to_confirm": "Visits to confirm: {n}",
   "confirm_all": "Confirm all",
-  "withdraw": "If everything is fine, confirm - this withdraws the dispute."
+  "withdraw": "If everything is fine, confirm - this withdraws the dispute.",
+  "h_from_waitlist": "booked from the waiting list"
+ },
+ "today": {
+  "done": "finished",
+  "live": "live · {n} min left",
+  "in_min": "starts in {n} min",
+  "at": "at {time}",
+  "trainings": "trainings",
+  "booked": "booked",
+  "here": "here",
+  "none": "No trainings today.",
+  "to_calendar": "Go to the calendar →",
+  "finished": "Finished ({n})",
+  "is_here": "Here",
+  "check_in": "Arrived?",
+  "opens": "from {time}",
+  "walk_in": "Walk-in (not booked)",
+  "walked_in": "{name} checked in",
+  "unmarked": "{n} not marked - they count as attended.",
+  "all_here": "Confirm - all came"
+ },
+ "repeat": {
+  "label": "Repeat",
+  "once": "this one only",
+  "weeks": "{n} weeks",
+  "done": "Booked for {n} trainings ({skipped} skipped)"
+ },
+ "wait": {
+  "join": "Waiting list",
+  "joined": "You are on the waiting list",
+  "hint": "No places left. Join the waiting list - if a place frees up you are booked automatically.",
+  "on_list": "On the waiting list · position {pos}",
+  "leave": "Leave",
+  "left": "You left the waiting list",
+  "promoted": "A place freed up - you are booked:",
+  "coach_list": "Waiting: {names}"
+ },
+ "absence": {
+  "button": "Absence",
+  "title": "Coach absence",
+  "hint": "All your trainings in the period are cancelled; booked swimmers get their visits back and see the reason.",
+  "from": "From",
+  "to": "To",
+  "reason": "Reason (swimmers see it)",
+  "reason_ph": "e.g. “Competition”, “Holiday”",
+  "extend": "Extend all active cards by the days of the absence",
+  "create": "Mark absence",
+  "confirm": "Cancel all trainings from {from} to {to}?",
+  "created": "Cancelled {s} trainings ({b} bookings), extended {c} cards",
+  "list": "Absences",
+  "summary": "{c} cards extended by {d} days",
+  "undo": "Undo",
+  "undo_confirm": "Put the trainings and card dates back as they were?",
+  "undone": "Absence undone"
+ },
+ "msg": {
+  "button": "Message",
+  "to_today": "Message today's swimmers",
+  "title": "Message to swimmers",
+  "hint": "Swimmers see it as a message in their calendar until they read it.",
+  "placeholder": "e.g. “Tomorrow we train in pool 2”",
+  "to": "To",
+  "all": "All my swimmers",
+  "day": "Booked on a date",
+  "date": "Date",
+  "send": "Send",
+  "sent": "Sent to {n} swimmers",
+  "sent_list": "Sent",
+  "day_of": "booked on {date}",
+  "read": "read {r}/{n}"
+ },
+ "insights": {
+  "title": "Insights",
+  "inactive": "Not seen for 3+ weeks",
+  "inactive_hint": "No visit for 21 days and nothing booked ahead.",
+  "expiring": "Cards expiring soon",
+  "expiring_hint": "Within 14 days, with visits left.",
+  "low": "Few visits left",
+  "low_hint": "Below the threshold in your rules.",
+  "busiest": "Busiest times",
+  "weeks": "Last 8 weeks",
+  "occupancy": "Occupancy by weekday",
+  "none": "None.",
+  "last": "last {date}",
+  "never": "never came",
+  "expires": "{n} expire on {date}"
  }
 }

@@ -195,7 +195,7 @@ def _coach_contact(user):
 def _effective_settings(user):
     with store.LOCK:
         out = prefs.for_user(store.current(), user)
-    out.update({k: config.CONFIG[k] for k in ("timezone", "default_lang", "max_capacity", "max_members", "ack_window_days")})
+    out.update({k: config.CONFIG[k] for k in ("timezone", "default_lang", "max_capacity", "max_members", "ack_window_days", "checkin_early_minutes")})
     return out
 
 

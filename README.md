@@ -25,6 +25,19 @@ report is written to disk as a fallback that doesn't depend on the web app.
   ← → navigate, **T** today, **D / W / M** for day / week / month.
 
 **Coach**
+- **Today** (the first tab, for the pool deck):
+  - each session with a live countdown
+  - one-tap **check-in** from 15 min before the start
+  - **walk-ins** booked and checked in at once
+  - 📞 for anyone not there 5 min in
+  - an end-of-session prompt for anyone not marked
+- **Coach absence** (🌴): cancels every training in a date range, with the reason shown to
+  swimmers and their visits returned. It optionally moves all active cards' expiry later
+  by the same number of days. It can be undone.
+- **Messages** (📣) to all swimmers, or only to those booked on a given day. They're shown
+  as a banner until read, and the coach sees how many have read each one.
+- **Insights:** swimmers not seen for 3+ weeks, cards expiring within 14 days, few visits
+  left, busiest times, and occupancy by weekday.
 - **Availability:** "Mon–Fri 07:00–12:00" is split automatically into slots. "+ Слот"
   creates a one-off slot or a weekly repeating one. Changing the hours keeps past
   sessions in the history and moves upcoming bookings along.
@@ -56,6 +69,10 @@ report is written to disk as a fallback that doesn't depend on the web app.
 - An admin coach can create other coaches.
 
 **Swimmer**
+- **Repeat booking:** the same slot for 4 or 8 weeks in one go. It skips full or cancelled
+  weeks and stops when visits run out.
+- **Waiting list** for full slots. When a place frees up, the first person in line who has
+  visits is booked automatically, and a banner tells them.
 - Books and cancels within the coach's rules, and sees visits left plus when they
   expire (with a warning when expiry is close).
 - Sees trainings the coach cancelled, and their visit history.

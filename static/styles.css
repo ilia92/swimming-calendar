@@ -945,3 +945,41 @@ dialog::backdrop { background: rgba(6, 25, 40, .45); backdrop-filter: blur(2px);
   .ack-banner, .note-banner, .off-banner { padding: .5rem .7rem; font-size: .9rem; margin-bottom: .45rem; gap: .2rem; }
   .ack-banner > div:first-child, .ack-banner strong { display: inline; }
 }
+
+/* =================================================================== v16: today, waiting list, messages */
+.today-head { display: flex; align-items: flex-end; justify-content: space-between; gap: .6rem; flex-wrap: wrap; margin-bottom: .5rem; }
+.today-head h1 { margin: 0; }
+.today-stats { display: flex; gap: .5rem 1rem; flex-wrap: wrap; margin-bottom: .8rem; font-size: .9rem; color: var(--muted); }
+.today-stats strong { font-size: 1.15rem; color: var(--text); margin-right: .1rem; }
+.today-stats .ok-text strong { color: var(--ok); }
+.today-card { background: var(--surface); border: 1px solid var(--border); border-left: 5px solid var(--accent); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: .7rem .8rem; margin-bottom: .75rem; }
+.today-card.live { border-left-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 35%, transparent), var(--shadow); }
+.today-card.done { border-left-color: var(--muted); opacity: .9; }
+.today-card-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .45rem; }
+.phase { font-size: .78rem; font-weight: 700; padding: .1rem .55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.phase.live { background: var(--ok-soft); color: var(--ok); }
+.phase.done { background: var(--surface-2); color: var(--muted); }
+.today-rows { display: grid; gap: .35rem; }
+.today-row { display: flex; align-items: center; gap: .55rem; padding: .4rem .45rem; border-radius: 12px; background: var(--surface-2); }
+.today-row .grow { cursor: pointer; min-width: 0; }
+.today-row.here { background: var(--ok-soft); }
+.today-row.gone { opacity: .6; }
+.checkin {
+  appearance: none; font: inherit; font-weight: 700; border-radius: 999px; min-height: 42px; min-width: 6.2rem; padding: .35rem .8rem;
+  border: 2px solid var(--ok); background: var(--surface); color: var(--ok); cursor: pointer;
+}
+.checkin.on { background: var(--ok); color: #fff; cursor: default; }
+.end-prompt { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: .3rem 0 .5rem; }
+.today-done summary { cursor: pointer; color: var(--muted); font-weight: 600; margin: .4rem 0 .6rem; }
+.repeat-sel { min-height: 38px; }
+.wait-box { display: grid; gap: .35rem; background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: .45rem .6rem; }
+.chip.slot.wait { background: var(--warn-soft); color: var(--warn); }
+.wait-banner { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; background: var(--ok-soft); color: var(--ok); margin-bottom: .5rem; }
+.msg-banner { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; }
+.big-chip { font-size: .85rem; padding: .25rem .6rem; }
+@media (max-width: 760px) { .checkin { min-width: 5.4rem; min-height: 44px; } }
+@media (max-width: 760px) {
+  .today-card-head .grow { order: 9; flex-basis: 100%; }
+  .today-card-head .phase { margin-right: auto; }
+}
