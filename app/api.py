@@ -576,6 +576,198 @@ def holidays(ctx):
     return {"holidays": schedule.holidays_between(start, end)}
 
 
+# --------------------------------------------------------------------------- coach absence
+
+@route("GET", "/absences")
+def list_absences(ctx):
+    with store.LOCK:
+        d = store.current()
+        scope = auth.coach_scope(ctx.user)
+        out = [a for a in d["absences"].values() if scope is None or a["coach_id"] in scope]
+    return {"absences": sorted(out, key=lambda a: a["from"], reverse=True)}
+
+
+@route("POST", "/absences")
+def create_absence(ctx):
+    """{from, to, reason, extend_cards (default true)}: cancels every training of the coach in
+    that range (visits go back, swimmers see the reason) and moves active cards' expiry later."""
+    auth.require_coach(ctx.user)
+    start, end = parse_date(ctx.b("from"), "from"), parse_date(ctx.b("to"), "to")
+    if end < start or (end - start).days > 180:
+        raise ApiError(400, "invalid_range", "bad date range")
+    reason = clean_str(ctx.b("reason"), "reason", 200)
+    extend = ctx.b("extend_cards", True) is not False
+
+    def fn(d):
+        coach_id = ctx.user["id"]
+        aid = new_id("ab")
+        days = (end - start).days + 1
+        note = ("🌴 " + reason) if reason else "🌴"
+        changed, cancelled = {}, 0
+        for sess in schedule.occurrences(d, start, end, {coach_id}):
+            if sess["cancelled"]:
+                continue
+            before = d["overrides"].get(sess["key"])
+            changed[sess["key"]] = before
+            d["overrides"][sess["key"]] = dict(before or {}, cancelled=True, note=note, absence=aid)
+            cancelled += _cancel_future_bookings(d, lambda b, k=sess["key"]: b["session_key"] == k, ctx.user, "session_cancelled")
+        extended = []
+        if extend:
+            for p in d["packages"].values():
+                if p.get("coach_id") == coach_id and p.get("valid_until") and p["valid_until"] >= start.isoformat():
+                    extended.append({"id": p["id"], "before": p["valid_until"]})
+                    p["valid_until"] = (date.fromisoformat(p["valid_until"]) + timedelta(days=days)).isoformat()
+        a = {"id": aid, "coach_id": coach_id, "from": start.isoformat(), "to": end.isoformat(), "reason": reason,
+             "days": days, "overrides": changed, "extended": extended, "cancelled_bookings": cancelled, "created_at": stamp()}
+        d["absences"][aid] = a
+        store.audit(d, ctx.user["id"], "absence_created", aid, coach_id=coach_id, days=days, cancelled=cancelled,
+                    cards=len(extended))
+        return {k: v for k, v in a.items() if k != "overrides"} | {"sessions": len(changed)}
+    return {"absence": store.mutate(fn)}
+
+
+@route("DELETE", "/absences/{aid}")
+def delete_absence(ctx):
+    """Undo an absence: trainings back on the schedule (bookings restored where possible), card dates back."""
+    auth.require_coach(ctx.user)
+
+    def fn(d):
+        a = d["absences"].get(ctx.params["aid"])
+        if not a or a["coach_id"] != ctx.user["id"]:
+            raise ApiError(404, "not_found", "absence not found")
+        restored = 0
+        for key, before in a["overrides"].items():
+            if (d["overrides"].get(key) or {}).get("absence") != a["id"]:
+                continue                    # changed again since - leave the coach's later edit alone
+            if before:
+                d["overrides"][key] = before
+            else:
+                d["overrides"].pop(key, None)
+            sess = schedule.get_session(d, key)
+            if sess and not sess["cancelled"]:
+                restored += _restore_bookings(d, sess)
+        for e in a["extended"]:
+            p = d["packages"].get(e["id"])
+            if p:
+                p["valid_until"] = e["before"]
+        del d["absences"][a["id"]]
+        store.audit(d, ctx.user["id"], "absence_removed", a["id"], coach_id=a["coach_id"], restored=restored)
+        return restored
+    return {"ok": True, "restored_bookings": store.mutate(fn)}
+
+
+# --------------------------------------------------------------------------- messages to swimmers
+
+@route("POST", "/messages")
+def send_message(ctx):
+    """{text, audience: all | day, date? (for day)} - shown to the swimmers as a banner until read."""
+    auth.require_coach(ctx.user)
+    text = clean_str(ctx.b("text"), "text", 1000, required=True)
+    audience = ctx.b("audience") or "all"
+    if audience not in ("all", "day"):
+        raise ApiError(400, "invalid_field", "unknown audience", field="audience")
+    day = parse_date(ctx.b("date"), "date").isoformat() if audience == "day" else None
+
+    def fn(d):
+        coach_id = ctx.user["id"]
+        if audience == "all":
+            rcpt = {u["id"] for u in d["users"].values()
+                    if u["role"] == "swimmer" and u.get("coach_id") == coach_id and u.get("active", True)}
+        else:
+            rcpt = {b["swimmer_id"] for b in d["bookings"].values()
+                    if b["date"] == day and b["coach_id"] == coach_id and b["status"] != "cancelled"}
+        if not rcpt:
+            raise ApiError(409, "no_recipients", "nobody to send to")
+        m = {"id": new_id("m"), "coach_id": coach_id, "text": text, "audience": audience, "date": day,
+             "recipients": sorted(rcpt), "read": [], "created_at": stamp()}
+        d["messages"][m["id"]] = m
+        store.audit(d, coach_id, "message_sent", m["id"], coach_id=coach_id, recipients=len(rcpt))
+        return m
+    return {"message": store.mutate(fn)}
+
+
+@route("GET", "/messages")
+def list_messages(ctx):
+    """Coach: what they sent (with read counts). Swimmer: what they received (last 60 days)."""
+    cutoff = (now() - timedelta(days=60)).isoformat()
+    with store.LOCK:
+        d = store.current()
+        names = {u["id"]: u["name"] for u in d["users"].values()}
+        if auth.is_coach(ctx.user):
+            scope = auth.coach_scope(ctx.user)
+            out = [dict(m, read_count=len(m["read"]), recipient_count=len(m["recipients"]),
+                        unread_names=[names.get(r, "?") for r in m["recipients"] if r not in m["read"]])
+                   for m in d["messages"].values() if scope is None or m["coach_id"] in scope]
+        else:
+            out = [{"id": m["id"], "text": m["text"], "created_at": m["created_at"], "from": names.get(m["coach_id"], ""),
+                    "read": ctx.user["id"] in m["read"]}
+                   for m in d["messages"].values() if ctx.user["id"] in m["recipients"] and m["created_at"] >= cutoff]
+    return {"messages": sorted(out, key=lambda m: m["created_at"], reverse=True)}
+
+
+@route("POST", "/messages/{mid}/read")
+def read_message(ctx):
+    def fn(d):
+        m = d["messages"].get(ctx.params["mid"])
+        if not m or ctx.user["id"] not in m["recipients"]:
+            raise ApiError(404, "not_found", "message not found")
+        if ctx.user["id"] not in m["read"]:
+            m["read"].append(ctx.user["id"])
+    store.mutate(fn)
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- insights for the coach
+
+@route("GET", "/insights")
+def insights(ctx):
+    auth.require_coach(ctx.user)
+    n = now()
+    today_iso = n.date().isoformat()
+    soon = (n.date() + timedelta(days=14)).isoformat()
+    three_weeks = (n.date() - timedelta(days=21)).isoformat()
+    with store.LOCK:
+        d = store.current()
+        scope = auth.coach_scope(ctx.user)
+        swimmers = [u for u in d["users"].values() if u["role"] == "swimmer" and u.get("active", True)
+                    and (scope is None or u.get("coach_id") in scope)]
+        inactive, expiring, low = [], [], []
+        for u in swimmers:
+            bal = credits.balance(d, u["id"], n)
+            last = credits.last_visit(d, u["id"], n)
+            nxt = credits.next_booking(d, u["id"], n)
+            row = {"id": u["id"], "name": u["name"], "avatar": u.get("avatar"), "phone": u.get("phone", ""),
+                   "available": bal["available"], "last_visit": last}
+            if (not last or last < three_weeks) and not nxt:
+                inactive.append(row)
+            for e in bal["expiry"]:
+                if e["date"] and today_iso <= e["date"] <= soon:
+                    expiring.append(dict(row, expires=e["date"], remaining=e["remaining"]))
+            if bal["total"] and bal["low"]:
+                low.append(row)
+        # the last 8 weeks: when do people come, and how full are the slots by weekday
+        start = n.date() - timedelta(weeks=8)
+        coaches = scope
+        per_time, per_wd_att, per_wd_cap = {}, [0] * 7, [0] * 7
+        for s in schedule.occurrences(d, start, n.date(), coaches):
+            if s["cancelled"] or schedule.session_start(s) > n:
+                continue
+            per_wd_cap[date.fromisoformat(s["date"]).weekday()] += s["capacity"]
+        for b in d["bookings"].values():
+            if b["date"] < start.isoformat() or b["date"] > today_iso or (coaches is not None and b["coach_id"] not in coaches):
+                continue
+            if credits.effective_status(b, n) == "attended":
+                per_time[b["start"]] = per_time.get(b["start"], 0) + 1
+                per_wd_att[date.fromisoformat(b["date"]).weekday()] += 1
+    return {
+        "inactive": sorted(inactive, key=lambda r: r["last_visit"] or ""),
+        "expiring": sorted(expiring, key=lambda r: r["expires"]),
+        "low": sorted(low, key=lambda r: r["available"]),
+        "busiest": sorted(per_time.items(), key=lambda kv: -kv[1])[:5],
+        "occupancy_by_weekday": [round(a / c, 3) if c else None for a, c in zip(per_wd_att, per_wd_cap)],
+    }
+
+
 # --------------------------------------------------------------------------- comments (coach only)
 
 def _comment_out(d, c):
@@ -703,6 +895,10 @@ def list_sessions(ctx):
         keys = {s["key"] for s in sessions}
         by_key = _bookings_by_key(d, keys)
         called_off = _bookings_by_key(d, keys, cancelled_by_coach=True)
+        waits = {}
+        for w in d["waitlist"].values():
+            if w["session_key"] in keys:
+                waits.setdefault(w["session_key"], []).append(w)
         out = []
         for s in sessions:
             bs = by_key.get(s["key"], [])
@@ -724,6 +920,11 @@ def list_sessions(ctx):
                         a.update(_attendee_detail(d, a["swimmer_id"], s["key"], n))
                 s["called_off"] = sorted(d["users"].get(b["swimmer_id"], {}).get("name", "?")
                                          for b in called_off.get(s["key"], []))
+                s["waitlist"] = [d["users"].get(w["swimmer_id"], {}).get("name", "?") + (" (%s)" % w["member"] if w.get("member") else "")
+                                 for w in sorted(waits.get(s["key"], []), key=lambda w: w["created_at"])]
+                for a in s["attendees"]:
+                    raw = d["bookings"][a["booking_id"]]
+                    a["checked"] = raw["status"] != "booked" and not raw.get("auto")    # explicitly marked by the coach
             else:
                 own = [b for b in bs if b["swimmer_id"] == viewer["id"]]
                 mine = own[0] if own else None
@@ -740,6 +941,9 @@ def list_sessions(ctx):
                     s["my_booking"] = ({"id": gone["id"], "status": "cancelled", "reason": gone["reason"],
                                         "by_coach": True, "can_cancel": False} if gone else None)
                 room_for_me = s["free_members"] if members else not own
+                mine_w = sorted(waits.get(s["key"], []), key=lambda w: w["created_at"])
+                s["my_waitlist"] = [{"id": w["id"], "member": w.get("member"), "position": i + 1}
+                                    for i, w in enumerate(mine_w) if w["swimmer_id"] == viewer["id"]]
                 p = pref(s["coach_id"])
                 horizon = today() + timedelta(days=p["booking_horizon_days"])
                 s["can_book"] = (p["swimmers_can_book"] and bool(room_for_me) and not s["cancelled"] and not s["started"]
@@ -959,6 +1163,7 @@ def put_override(ctx):
             n = _cancel_future_bookings(d, lambda b: b["session_key"] == sess["key"], ctx.user, "session_cancelled")
         elif sess["cancelled"] and not schedule.get_session(d, sess["key"])["cancelled"]:
             restored = _restore_bookings(d, sess)
+        _promote_waitlist(d, sess["key"])          # more places, or back on the schedule
         store.audit(d, ctx.user["id"], "session_override", sess["key"], coach_id=sess["coach_id"], **ov)
         return {"session": schedule.get_session(d, sess["key"]), "cancelled_bookings": n,
                 "restored_bookings": restored}
@@ -1069,7 +1274,7 @@ def _needs_attention(b, viewer):
     """Swimmer: coach requests and unseen changes. Coach: disputes and requests still open."""
     if auth.is_coach(viewer):
         return (b.get("ack") or {}).get("status") == "disputed" or bool(b.get("pending"))
-    return bool(b.get("pending")) or bool(b.get("unseen"))
+    return bool(b.get("pending")) or bool(b.get("unseen")) or bool(b.get("waitlist_notice"))
 
 
 @route("GET", "/bookings")
@@ -1100,75 +1305,184 @@ def list_bookings(ctx):
     return {"bookings": out}
 
 
+def _book(d, viewer, swimmer, sess, wanted, force, n, check_window=True):
+    """Book `swimmer` (and the given joint-account members) into `sess`. Raises ApiError and
+    leaves `d` untouched if it can't be done. Returns the new bookings."""
+    if sess["cancelled"]:
+        raise ApiError(409, "session_cancelled", "this session is cancelled")
+    if not auth.is_coach(viewer) and check_window:
+        p = prefs.for_coach(d, sess["coach_id"])
+        if not p["swimmers_can_book"]:
+            raise ApiError(403, "self_booking_disabled", "your coach books the trainings")
+        if schedule.session_start(sess) <= n:
+            raise ApiError(409, "too_late", "this session has already started")
+        if date.fromisoformat(sess["date"]) > n.date() + timedelta(days=p["booking_horizon_days"]):
+            raise ApiError(409, "too_far", "booking is not open yet for this date")
+    existing = [b for b in d["bookings"].values() if b["session_key"] == sess["key"] and b["status"] != "cancelled"]
+    # a joint account books one place per member (e.g. two kids on one card)
+    account_members = swimmer.get("members") or []
+    if account_members:
+        if not isinstance(wanted, list) or not wanted:
+            raise ApiError(400, "pick_members", "choose who is coming")
+        if [m for m in wanted if m not in account_members]:
+            raise ApiError(400, "invalid_field", "unknown member", field="members")
+        wanted = list(dict.fromkeys(wanted))
+    else:
+        wanted = [None]
+    taken = {b.get("member") for b in existing if b["swimmer_id"] == swimmer["id"]}
+    if any(m in taken for m in wanted):
+        raise ApiError(409, "already_booked", "already booked")
+    if not force and sum(1 for b in existing if _occupying(b, n)) + len(wanted) > sess["capacity"]:
+        raise ApiError(409, "full", "no free places")
+    unpaid_before = credits.balance(d, swimmer["id"], n)["unpaid"]
+    probe = {"date": sess["date"], "end": sess["end"]}
+    locked = acks.ended(probe, n) and n >= acks.ack_deadline(probe)
+    made = []
+    for member in wanted:
+        b = {"id": new_id("b"), "swimmer_id": swimmer["id"], "coach_id": sess["coach_id"],
+             "session_key": sess["key"], "date": sess["date"], "start": sess["start"], "end": sess["end"],
+             "location": sess["location"], "title": sess["title"], "status": "booked", "member": member,
+             "created_at": stamp(), "updated_at": stamp(), "by": viewer["id"]}
+        if acks.ended(b, n):
+            b["unseen"] = True
+            if locked:
+                # a visit added to an old, locked training costs the swimmer: needs their OK
+                b.update(status="cancelled", reason="pending_approval",
+                         pending={"status": "attended", "by": viewer["id"], "at": stamp()})
+                acks.log(b, viewer, "requested", to="attended")
+            else:
+                acks.log(b, viewer, "added", to="attended")
+        d["bookings"][b["id"]] = b
+        made.append(b)
+    if not force and credits.balance(d, swimmer["id"], n)["unpaid"] > unpaid_before:
+        for b in made:
+            del d["bookings"][b["id"]]
+        raise ApiError(409, "no_credits", "not enough visits left")
+    for b in made:
+        store.audit(d, viewer["id"], "booking_created", b["id"], coach_id=sess["coach_id"],
+                    swimmer=swimmer["id"], session=sess["key"], member=b["member"], forced=force or None)
+    return made
+
+
+def _weekly_keys(d, sess, weeks):
+    """Keys of the same slot in the following weeks (repeating slots only)."""
+    if sess["kind"] != "slot":
+        return []
+    day = date.fromisoformat(sess["date"])
+    out = []
+    for i in range(1, weeks):
+        nxt = schedule.get_session(d, "%s@%sT%s" % (sess["source_id"], (day + timedelta(weeks=i)).isoformat(), sess["start"]))
+        # the slot may have moved to a new version of the availability window
+        if not nxt:
+            for w in d["availability"].values():
+                if w["coach_id"] == sess["coach_id"]:
+                    cand = schedule.get_session(d, schedule.slot_key(w, day + timedelta(weeks=i), sess["start"]))
+                    if cand:
+                        nxt = cand
+                        break
+        out.append(nxt or {"key": None, "date": (day + timedelta(weeks=i)).isoformat()})
+    return out
+
+
 @route("POST", "/bookings")
 def create_booking(ctx):
+    """{session_key, members?, swimmer_id? (coach), force? (coach), repeat_weeks? (1-12)}"""
     viewer = ctx.user
     force = auth.is_coach(viewer) and _bool(ctx.b("force"))
+    weeks = parse_int(ctx.b("repeat_weeks") or 1, "repeat_weeks", 1, 12)
 
     def fn(d):
         n = now()
-        if auth.is_coach(viewer):
-            swimmer = _managed_swimmer(d, viewer, ctx.b("swimmer_id"))
-        else:
-            swimmer = d["users"][viewer["id"]]
+        swimmer = _managed_swimmer(d, viewer, ctx.b("swimmer_id")) if auth.is_coach(viewer) else d["users"][viewer["id"]]
         sess = schedule.get_session(d, ctx.b("session_key"))
         if not sess or sess["coach_id"] != swimmer.get("coach_id"):
             raise ApiError(404, "session_not_found", "session not found")
-        if sess["cancelled"]:
-            raise ApiError(409, "session_cancelled", "this session is cancelled")
-        if not auth.is_coach(viewer):
-            p = prefs.for_coach(d, sess["coach_id"])
-            if not p["swimmers_can_book"]:
-                raise ApiError(403, "self_booking_disabled", "your coach books the trainings")
-            if schedule.session_start(sess) <= n:
-                raise ApiError(409, "too_late", "this session has already started")
-            if date.fromisoformat(sess["date"]) > n.date() + timedelta(days=p["booking_horizon_days"]):
-                raise ApiError(409, "too_far", "booking is not open yet for this date")
-        existing = [b for b in d["bookings"].values() if b["session_key"] == sess["key"] and b["status"] != "cancelled"]
-        # a joint account books one place per member (e.g. two kids on one card)
-        account_members = swimmer.get("members") or []
-        if account_members:
-            wanted = ctx.b("members") or []
-            if not isinstance(wanted, list) or not wanted:
-                raise ApiError(400, "pick_members", "choose who is coming")
-            unknown = [m for m in wanted if m not in account_members]
-            if unknown:
-                raise ApiError(400, "invalid_field", "unknown member", field="members")
-            wanted = list(dict.fromkeys(wanted))
-        else:
-            wanted = [None]
-        taken = {b.get("member") for b in existing if b["swimmer_id"] == swimmer["id"]}
-        if any(m in taken for m in wanted):
-            raise ApiError(409, "already_booked", "already booked")
-        if not force and sum(1 for b in existing if _occupying(b, n)) + len(wanted) > sess["capacity"]:
-            raise ApiError(409, "full", "no free places")
-        unpaid_before = credits.balance(d, swimmer["id"], n)["unpaid"]
-        probe = {"date": sess["date"], "end": sess["end"]}
-        locked = acks.ended(probe, n) and n >= acks.ack_deadline(probe)
-        made = []
-        for member in wanted:
-            b = {"id": new_id("b"), "swimmer_id": swimmer["id"], "coach_id": sess["coach_id"],
-                 "session_key": sess["key"], "date": sess["date"], "start": sess["start"], "end": sess["end"],
-                 "location": sess["location"], "title": sess["title"], "status": "booked", "member": member,
-                 "created_at": stamp(), "updated_at": stamp(), "by": viewer["id"]}
-            if acks.ended(b, n):
-                b["unseen"] = True
-                if locked:
-                    # a visit added to an old, locked training costs the swimmer: needs their OK
-                    b.update(status="cancelled", reason="pending_approval",
-                             pending={"status": "attended", "by": viewer["id"], "at": stamp()})
-                    acks.log(b, viewer, "requested", to="attended")
-                else:
-                    acks.log(b, viewer, "added", to="attended")
-            d["bookings"][b["id"]] = b
-            made.append(b)
-            store.audit(d, viewer["id"], "booking_created", b["id"], coach_id=sess["coach_id"],
-                        swimmer=swimmer["id"], session=sess["key"], member=member, forced=force or None)
-        if not force and credits.balance(d, swimmer["id"], n)["unpaid"] > unpaid_before:
-            raise ApiError(409, "no_credits", "not enough visits left")   # mutate() rolls the bookings back
-        return [booking_out(d, b, viewer, n) for b in made]
-    made = store.mutate(fn)
-    return {"booking": made[0], "bookings": made}
+        made = _book(d, viewer, swimmer, sess, ctx.b("members"), force, n)
+        skipped = []
+        for nxt in _weekly_keys(d, sess, weeks):
+            if not nxt.get("key"):
+                skipped.append({"date": nxt["date"], "reason": "session_not_found"})
+                continue
+            try:
+                made += _book(d, viewer, swimmer, nxt, ctx.b("members"), force, n)
+            except ApiError as e:
+                skipped.append({"date": nxt["date"], "reason": e.code})
+                if e.code == "no_credits":
+                    break                  # later weeks would not fit either
+        return [booking_out(d, b, viewer, n) for b in made], skipped
+    made, skipped = store.mutate(fn)
+    return {"booking": made[0], "bookings": made, "skipped": skipped}
+
+
+# --------------------------------------------------------------------------- waiting list
+
+def _promote_waitlist(d, key, n=None):
+    """A place freed up: book the first people in line who still fit and can pay."""
+    n = n or now()
+    sess = schedule.get_session(d, key)
+    if not sess or sess["cancelled"] or schedule.session_start(sess) <= n:
+        return 0
+    promoted = 0
+    queue = sorted((w for w in d["waitlist"].values() if w["session_key"] == key), key=lambda w: w["created_at"])
+    for w in queue:
+        sw = d["users"].get(w["swimmer_id"])
+        if not sw or not sw.get("active", True):
+            del d["waitlist"][w["id"]]
+            continue
+        try:
+            made = _book(d, sw, sw, sess, [w["member"]] if w.get("member") else None, False, n, check_window=False)
+        except ApiError as e:
+            if e.code in ("full",):
+                break                      # still no room - keep the queue as it is
+            del d["waitlist"][w["id"]]     # can't be booked (no visits, already booked...)
+            continue
+        for b in made:
+            b["waitlist_notice"] = True
+            acks.log(b, sw, "from_waitlist")
+        del d["waitlist"][w["id"]]
+        promoted += 1
+    return promoted
+
+
+@route("POST", "/waitlist")
+def join_waitlist(ctx):
+    """{session_key, member?} - swimmers only, for a full future session."""
+    if auth.is_coach(ctx.user):
+        raise ApiError(403, "forbidden", "swimmers join the waiting list themselves")
+
+    def fn(d):
+        n = now()
+        sw = d["users"][ctx.user["id"]]
+        sess = schedule.get_session(d, ctx.b("session_key"))
+        if not sess or sess["coach_id"] != sw.get("coach_id") or sess["cancelled"] or schedule.session_start(sess) <= n:
+            raise ApiError(404, "session_not_found", "session not found")
+        if not prefs.for_coach(d, sess["coach_id"])["swimmers_can_book"]:
+            raise ApiError(403, "self_booking_disabled", "your coach books the trainings")
+        member = ctx.b("member") or None
+        if (sw.get("members") or []) and member not in sw["members"]:
+            raise ApiError(400, "pick_members", "choose who is coming")
+        if any(w["session_key"] == sess["key"] and w["swimmer_id"] == sw["id"] and w.get("member") == member
+               for w in d["waitlist"].values()):
+            raise ApiError(409, "already_waiting", "already on the waiting list")
+        w = {"id": new_id("w"), "session_key": sess["key"], "swimmer_id": sw["id"], "member": member,
+             "coach_id": sess["coach_id"], "date": sess["date"], "start": sess["start"], "created_at": stamp()}
+        d["waitlist"][w["id"]] = w
+        store.audit(d, sw["id"], "waitlist_joined", w["id"], coach_id=sess["coach_id"], session=sess["key"])
+        # maybe a place is free right now
+        _promote_waitlist(d, sess["key"], n)
+        return w
+    return {"entry": store.mutate(fn)}
+
+
+@route("DELETE", "/waitlist/{wid}")
+def leave_waitlist(ctx):
+    def fn(d):
+        w = d["waitlist"].get(ctx.params["wid"])
+        if not w or not (w["swimmer_id"] == ctx.user["id"] or auth.can_manage_swimmer(ctx.user, d["users"].get(w["swimmer_id"]))):
+            raise ApiError(404, "not_found", "not on the waiting list")
+        del d["waitlist"][w["id"]]
+    store.mutate(fn)
+    return {"ok": True}
 
 
 def _visible_booking(d, viewer, bid):
@@ -1192,6 +1506,7 @@ def cancel_booking(ctx):
             raise ApiError(409, "cancel_too_late", "it is too late to cancel - ask your coach")
         b.update(status="cancelled", updated_at=stamp(), by=ctx.user["id"])
         store.audit(d, ctx.user["id"], "booking_cancelled", b["id"], coach_id=b["coach_id"], swimmer=b["swimmer_id"])
+        _promote_waitlist(d, b["session_key"], n)
         return booking_out(d, b, ctx.user, n)
     return {"booking": store.mutate(fn)}
 
@@ -1220,7 +1535,8 @@ def update_booking(ctx):
     def fn(d):
         n = now()
         b = _visible_booking(d, ctx.user, ctx.params["bid"])
-        if status in ("attended", "no_show", "excused") and local_dt(date.fromisoformat(b["date"]), b["start"]) > n:
+        opens = local_dt(date.fromisoformat(b["date"]), b["start"]) - timedelta(minutes=config.CONFIG["checkin_early_minutes"])
+        if status in ("attended", "no_show", "excused") and opens > n:
             raise ApiError(409, "not_started", "the session has not started yet")
         old = credits.effective_status(b, n)
         if old == status:
@@ -1243,6 +1559,8 @@ def update_booking(ctx):
                 b["ack"] = {"status": "changed", "at": stamp()}     # what they confirmed is no longer the record
         if "note" in ctx.body:
             b["note"] = clean_str(ctx.b("note"), "note", 300)
+        if status in ("cancelled", "excused"):
+            _promote_waitlist(d, b["session_key"], n)
         store.audit(d, ctx.user["id"], "booking_status", b["id"], coach_id=b["coach_id"],
                     swimmer=b["swimmer_id"], old=old, new=status)
         return booking_out(d, b, ctx.user, n), False
@@ -1287,6 +1605,7 @@ def ack_booking(ctx):
                 acks.log(b, ctx.user, "rejected", to=p["status"])
             b.pop("pending", None)
         b.pop("unseen", None)
+        b.pop("waitlist_notice", None)
         store.audit(d, ctx.user["id"], "visit_" + action, b["id"], coach_id=b["coach_id"], swimmer=b["swimmer_id"])
         return booking_out(d, b, ctx.user, n)
     return {"booking": store.mutate(fn)}

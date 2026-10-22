@@ -498,6 +498,59 @@ class ApiTest(unittest.TestCase):
         util.set_now(datetime(2026, 11, 3, 9, 0, tzinfo=config.tz()))            # window passed on its own
         self.assertFalse(a.ok("GET", "/bookings?from=2026-10-29&to=2026-10-29")["bookings"][0]["can_ack"])
 
+    def test_repeat_booking_and_waitlist(self):
+        slot = self.make_slot(capacity=1)
+        key = "%s@2026-10-22T18:00" % slot["id"]
+        a = self.make_swimmer("anna", "Анна", visits=3)
+        out = a.ok("POST", "/bookings", {"session_key": key, "repeat_weeks": 5})
+        self.assertEqual([b["date"] for b in out["bookings"]], ["2026-10-22", "2026-10-29", "2026-11-05"])
+        self.assertEqual(out["skipped"], [{"date": "2026-11-12", "reason": "no_credits"}])
+        b = self.make_swimmer("boris", "Борис", visits=5)
+        self.assertEqual(b.call("POST", "/bookings", {"session_key": key})[1]["error"], "full")
+        b.ok("POST", "/waitlist", {"session_key": key})
+        sess = b.ok("GET", "/sessions?from=2026-10-22&to=2026-10-22")["sessions"][0]
+        self.assertEqual(sess["my_waitlist"][0]["position"], 1)
+        self.assertEqual(b.call("POST", "/waitlist", {"session_key": key})[1]["error"], "already_waiting")
+        a.ok("DELETE", "/bookings/%s" % out["bookings"][0]["id"])           # a place frees up
+        mine = b.ok("GET", "/bookings?attention=1")["bookings"]
+        self.assertEqual((len(mine), mine[0]["waitlist_notice"]), (1, True))
+        self.assertEqual(b.ok("GET", "/sessions?from=2026-10-22&to=2026-10-22")["sessions"][0]["my_waitlist"], [])
+
+    def test_absence_cancels_and_extends_cards(self):
+        slot = self.make_slot(capacity=4)
+        a = self.make_swimmer(visits=10)
+        p = self.coach.ok("POST", "/packages", {"swimmer_id": a.id, "visits": 5, "valid_days": 30})["package"]
+        a.ok("POST", "/bookings", {"session_key": "%s@2026-10-29T18:00" % slot["id"]})
+        out = self.coach.ok("POST", "/absences", {"from": "2026-10-26", "to": "2026-11-01", "reason": "Състезание"})["absence"]
+        self.assertEqual((out["days"], out["cancelled_bookings"], len(out["extended"])), (7, 1, 1))
+        sess = a.ok("GET", "/sessions?from=2026-10-29&to=2026-10-29")["sessions"][0]
+        self.assertTrue(sess["cancelled"]); self.assertIn("Състезание", sess["note"])
+        pk = [x for x in a.ok("GET", "/credits/%s" % a.id)["balance"]["packages"] if x["id"] == p["id"]][0]
+        self.assertEqual(pk["valid_until"], "2026-11-26")                   # 19.11 + 7 days
+        self.coach.ok("DELETE", "/absences/%s" % out["id"])                  # undo
+        self.assertFalse(a.ok("GET", "/sessions?from=2026-10-29&to=2026-10-29")["sessions"][0]["cancelled"])
+        self.assertEqual(a.ok("GET", "/credits/%s" % a.id)["balance"]["reserved"], 1)
+        pk = [x for x in a.ok("GET", "/credits/%s" % a.id)["balance"]["packages"] if x["id"] == p["id"]][0]
+        self.assertEqual(pk["valid_until"], "2026-11-19")
+
+    def test_messages_and_insights(self):
+        slot = self.make_slot()
+        a = self.make_swimmer("anna", "Анна", visits=2)
+        b = self.make_swimmer("boris", "Борис", visits=10)
+        a.ok("POST", "/bookings", {"session_key": "%s@2026-10-22T18:00" % slot["id"]})
+        self.coach.ok("POST", "/messages", {"text": "Утре сме в басейн 2", "audience": "day", "date": "2026-10-22"})
+        self.coach.ok("POST", "/messages", {"text": "Честит празник!"})
+        self.assertEqual(sorted(m["text"] for m in a.ok("GET", "/messages")["messages"]), ["Утре сме в басейн 2", "Честит празник!"])
+        self.assertEqual([m["text"] for m in b.ok("GET", "/messages")["messages"]], ["Честит празник!"])
+        mid = [m for m in a.ok("GET", "/messages")["messages"] if m["text"] == "Честит празник!"][0]["id"]
+        a.ok("POST", "/messages/%s/read" % mid)
+        sent = [m for m in self.coach.ok("GET", "/messages")["messages"] if m["id"] == mid][0]
+        self.assertEqual((sent["read_count"], sent["recipient_count"]), (1, 2))
+        self.assertEqual(b.call("POST", "/messages", {"text": "x"})[0], 403)
+        ins = self.coach.ok("GET", "/insights")
+        self.assertEqual([r["name"] for r in ins["inactive"]], ["Борис"])           # Анна has a booking
+        self.assertEqual([r["name"] for r in ins["low"]], ["Анна"])                 # 1 left
+
     def test_sessions_include_holidays(self):
         out = self.coach.ok("GET", "/sessions?from=2026-12-21&to=2026-12-27")
         self.assertEqual(sorted(out["holidays"]), ["2026-12-24", "2026-12-25", "2026-12-26"])

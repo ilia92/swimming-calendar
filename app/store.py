@@ -36,6 +36,9 @@ def empty_data():
         "packages": {},
         "bookings": {},
         "comments": {},
+        "waitlist": {},
+        "absences": {},
+        "messages": {},
         "audit": [],
         "meta": {"last_report_date": None},
     }

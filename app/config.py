@@ -22,7 +22,8 @@ DEFAULTS = {
     "default_slot_minutes": 45,      # length of one bookable slot in a new availability window
     "max_capacity": 8,               # swimmers per slot (coach can still overbook explicitly)
     "max_members": 3,                # people on a joint account (e.g. siblings sharing one card)
-    "ack_window_days": 3,            # swimmers can confirm/dispute a past visit this long; then it locks
+    "ack_window_days": 3,
+    "checkin_early_minutes": 15,     # the coach can check swimmers in this long before the start            # swimmers can confirm/dispute a past visit this long; then it locks
     "low_credit_threshold": 2,
     "session_ttl_days": 30,
     "cookie_secure": False,          # set true once served over HTTPS only
