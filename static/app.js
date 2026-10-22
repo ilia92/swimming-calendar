@@ -1193,8 +1193,9 @@ function swimmerSessionBody(s, inline) {
     const picks = members.slice(0, s.free).map((m) => el('label', { class: 'member-pick' },
       el('input', { type: 'checkbox', value: m, checked: true }), el('span', {}, m)));
     const hint = el('p', { class: 'muted small book-hint' });
-    const repeat = !inline && s.kind === 'slot' ? el('select', { class: 'auto repeat-sel', 'aria-label': t('repeat.label') },
-      [1, 2, 4, 8].map((w) => el('option', { value: w }, w === 1 ? t('repeat.once') : t('repeat.weeks', { n: w })))) : null;
+    const maxWeeks = repeatLimit(s.date);
+    const repeat = !inline && s.kind === 'slot' && maxWeeks > 1 ? el('select', { class: 'auto repeat-sel', 'aria-label': t('repeat.label') },
+      Array.from({ length: maxWeeks }, (_, i) => i + 1).map((w) => el('option', { value: w }, w === 1 ? t('repeat.once') : t('repeat.weeks', { n: w })))) : null;
     const bookBtn = btn(t('book.book'), async () => {
         const body = { session_key: s.key, repeat_weeks: repeat ? Number(repeat.value) : 1 };
         if (members.length) {
@@ -1252,6 +1253,17 @@ function visitNotes(b, opts = {}) {
     b.note ? el('div', { class: 'visit-note coach' }, '📝 ', el('span', {}, b.note), opts.who ? el('span', { class: 'muted' }, ' — ' + t('notes.from_coach')) : null) : null,
     b.swimmer_note ? el('div', { class: 'visit-note swimmer' }, '✉️ ', el('span', {}, b.swimmer_note), opts.who ? el('span', { class: 'muted' }, ' — ' + t('notes.from_swimmer')) : null) : null,
   ];
+}
+
+/** How many weekly repeats fit: within the coach's booking horizon and before the swimmer's cards expire. */
+function repeatLimit(dateIso) {
+  let last = addDays(parseISO(todayISO()), S.settings.booking_horizon_days || 28);
+  const cards = ((S.balance && S.balance.packages) || []).filter((p) => !p.expired && p.remaining > 0);
+  if (cards.length && cards.every((p) => p.valid_until)) {
+    const latest = parseISO(cards.map((p) => p.valid_until).sort().pop());
+    if (latest < last) last = latest;
+  }
+  return Math.max(1, Math.min(8, Math.floor((last - parseISO(dateIso)) / (7 * 864e5)) + 1));
 }
 
 function bookHint(n, upTo) {
