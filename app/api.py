@@ -291,7 +291,8 @@ def _coach_of(u):
 # --------------------------------------------------------------------------- users
 
 def _clean_members(value):
-    """Names on a joint account: [] for a normal one, else 2..max_members unique names."""
+    """Names on a joint account: [] for a normal one, else 1..max_members unique names
+    (one name = a parent's account booking for their kid)."""
     if value in (None, "", []):
         return []
     if not isinstance(value, list):
@@ -303,7 +304,7 @@ def _clean_members(value):
             names.append(name)
     if len(names) > config.CONFIG["max_members"]:
         raise ApiError(400, "too_many_members", "at most %d people per account" % config.CONFIG["max_members"])
-    return names if len(names) > 1 else []
+    return names
 
 
 def _new_user(d, role, body, creator, coach_id=None):
@@ -1333,6 +1334,8 @@ def _book(d, viewer, swimmer, sess, wanted, force, n, check_window=True):
     existing = [b for b in d["bookings"].values() if b["session_key"] == sess["key"] and b["status"] != "cancelled"]
     # a joint account books one place per member (e.g. two kids on one card)
     account_members = swimmer.get("members") or []
+    if len(account_members) == 1 and not wanted:
+        wanted = account_members       # only one person on the account: nothing to pick
     if account_members:
         if not isinstance(wanted, list) or not wanted:
             raise ApiError(400, "pick_members", "choose who is coming")
@@ -1438,6 +1441,8 @@ def join_waitlist(ctx):
         if not prefs.for_coach(d, sess["coach_id"])["swimmers_can_book"]:
             raise ApiError(403, "self_booking_disabled", "your coach books the trainings")
         member = ctx.b("member") or None
+        if len(sw.get("members") or []) == 1 and not member:
+            member = sw["members"][0]
         if (sw.get("members") or []) and member not in sw["members"]:
             raise ApiError(400, "pick_members", "choose who is coming")
         if any(w["session_key"] == sess["key"] and w["swimmer_id"] == sw["id"] and w.get("member") == member

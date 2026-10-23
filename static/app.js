@@ -822,9 +822,9 @@ async function viewCalendar() {
 
 /** Book a free slot with one tap; the toast offers undo while cancelling is still allowed. */
 async function quickBook(s) {
-  if ((s.free_members || []).length) return popup(() => sessionPopup(s.key, s.date));   // joint account: pick who comes
+  if ((s.free_members || []).length > 1) return popup(() => sessionPopup(s.key, s.date));   // joint account: pick who comes
   try {
-    const out = await api('POST', '/bookings', { session_key: s.key });
+    const out = await api('POST', '/bookings', { session_key: s.key, members: s.free_members });   // one free member (or none) books straight away
     const b = out.booking;
     toast(t('book.booked_at', { when: fmtShort(s.date) + ' ' + s.start }), '', b.can_cancel
       ? { label: t('book.undo'), fn: () => act(() => api('DELETE', '/bookings/' + b.id), t('book.cancelled')) } : null);
@@ -1255,6 +1255,7 @@ function bookHint(n) {
 
 /** Which members of a joint account are coming (checkboxes, all free ones pre-ticked). */
 function pickMembers(account, free) {
+  if ((account.members || []).length === 1) return Promise.resolve(free.slice());   // one person: nothing to pick
   const c = document.getElementById('confirm');
   return new Promise((resolve) => {
     let answer = null;
