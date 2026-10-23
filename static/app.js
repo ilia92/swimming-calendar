@@ -1274,6 +1274,33 @@ function pickMembers(account, free) {
   });
 }
 
+/** The numbers in a phone field, split on , ; / and on spaces between whole numbers
+ * ("089 8436371" stays one number). Each: {text, intl} with local 0xx numbers as +359xx. */
+function phones(field) {
+  const out = [];
+  for (const part of (field || '').split(/[,;/]+/)) {
+    const words = part.trim().split(/\s+/).filter(Boolean);
+    const whole = words.length > 1 && words.every((w) => w.replace(/\D/g, '').length >= 8);
+    for (const text of whole ? words : [words.join(' ')]) {
+      let n = text.replace(/[^\d+]/g, '');
+      if (n.startsWith('00')) n = '+' + n.slice(2);
+      else if (n.startsWith('0')) n = '+359' + n.slice(1);
+      else if (!n.startsWith('+')) n = '+' + n;
+      if (n.length >= 8) out.push({ text, intl: n });
+    }
+  }
+  return out;
+}
+
+/** Call link + Viber chat button for every number in a phone field. label(p) = the call link's text. */
+function phoneLinks(field, label, cls) {
+  const stop = (ev) => ev.stopPropagation();
+  return phones(field).map((p) => el('span', { class: 'phone nowrap' },
+    el('a', { href: 'tel:' + p.intl, class: cls || null, title: p.text, onclick: stop }, label(p)),
+    el('a', { class: 'viber', href: 'viber://chat?number=' + encodeURIComponent(p.intl), title: 'Viber ' + p.text, 'aria-label': 'Viber', onclick: stop },
+      el('img', { src: 'viber.svg', alt: '' }))));
+}
+
 function creditsChip(c) {
   return el('span', { class: 'credit-chip' + (c.unpaid ? ' danger' : c.low ? ' warn' : ''), title: t('credits.chip_title') },
     el('span', { class: 'ok-text' }, '✓' + c.used), ' · ', el('span', {}, '⏳' + c.reserved), ' · ', el('strong', {}, t('credits.left_short', { n: c.available })),
@@ -1309,7 +1336,7 @@ function attendeeCard(s, a) {
       a.member ? el('span', { class: 'small members-tag' }, '👥 ' + a.name) : null,
       badge(a.status, a.pending && a.status === 'cancelled' ? { reason: 'pending_approval' } : null),
       el('span', { class: 'spacer' }),
-      a.phone ? el('a', { href: 'tel:' + a.phone, class: 'small nowrap' }, '📞 ' + a.phone) : null),
+      phoneLinks(a.phone, (p) => '📞 ' + p.text, 'small')),
     el('div', { class: 'att-info' }, creditsChip(a.credits)),
     a.notes ? el('div', { class: 'att-note small' }, '📌 ' + a.notes) : null,
     a.last_comment ? el('div', { class: 'att-note small muted', title: fmtTs(a.last_comment.created_at) }, '💬 ' + a.last_comment.text) : null,
@@ -1699,7 +1726,7 @@ function coachContact() {
   if (!c) return null;
   return el('div', { class: 'coach-contact' }, avatar(c, 40),
     el('div', { class: 'grow' }, el('div', { class: 'muted small' }, t('coach.yours')), el('strong', {}, c.name)),
-    c.phone ? el('a', { class: 'btn small', href: 'tel:' + c.phone }, '📞 ' + c.phone) : null,
+    phoneLinks(c.phone, (p) => '📞 ' + p.text, 'btn small'),
     c.email ? el('a', { class: 'btn small ghost', href: 'mailto:' + c.email, title: c.email }, '✉️') : null);
 }
 
@@ -1884,7 +1911,17 @@ async function viewSwimmers() {
   const SORTS = {
     name: (a, b) => a.name.localeCompare(b.name, locale()),
     left: (a, b) => a.balance.available - b.balance.available || a.name.localeCompare(b.name, locale()),
-    last: (a, b) => (b.last_visit || '').localeCompare(a.last_visit || ''),
+    expiry: (a, b) => expiryOf(a).localeCompare(expiryOf(b)) || a.name.localeCompare(b.name, locale()),
+  };
+  // earliest date on which some of the visits still left run out ('~' sorts cards without one last)
+  const expiryOf = (s) => (s.balance.expiry.find((e) => e.date) || {}).date || '~';
+  const expiryCell = (s) => {
+    const e = s.balance.expiry.find((x) => x.date);
+    if (!e) return '—';
+    const days = Math.round((parseISO(e.date) - parseISO(todayISO())) / 86400000);
+    return el('span', { class: days <= 7 ? 'warn-text' : '', title: t('insights.expires', { n: e.remaining, date: fmtShort(e.date) }) },
+      fmtShort(e.date), ' ', el('span', { class: 'nowrap' + (days <= 7 ? '' : ' muted') }, t('swimmers.days_left', { n: days })),
+      s.balance.expiry.length > 1 ? el('div', { class: 'tiny muted' }, t('credits.left_short', { n: e.remaining })) : null);
   };
   const counts = Object.fromEntries(Object.entries(FILTERS).map(([k, f]) => [k, out.swimmers.filter(f).length]));
   const filterBar = el('div', { class: 'tabs sw-filters' });
@@ -1902,16 +1939,17 @@ async function viewSwimmers() {
     tbody.replaceChildren(...rows.map((s) => el('tr', { class: 'clickable' + (s.active ? '' : ' inactive'), onclick: () => popup(() => swimmerPopup(s.id)) },
       el('td', {}, el('div', { class: 'who' }, avatar(s, 36), el('div', {}, el('strong', {}, s.name),
         (s.members || []).length ? el('span', { class: 'badge joint', title: s.members.join(', ') }, '👥 ' + s.members.length) : null,
-        el('div', { class: 'muted small' }, s.username, s.phone ? [' · ', el('a', { href: 'tel:' + s.phone, onclick: (ev) => ev.stopPropagation() }, s.phone)] : null)))),
-      el('td', { class: 'num show-sm' }, creditsChip({ ...s.balance })),
+        el('div', { class: 'muted small' }, s.username, phones(s.phone).length ? [' · ', phoneLinks(s.phone, (p) => p.text)] : null)))),
+      el('td', { class: 'num show-sm' }, creditsChip({ ...s.balance }), el('div', { class: 'tiny' }, expiryCell(s))),
       el('td', { class: 'num hide-sm' }, s.balance.used),
       el('td', { class: 'num hide-sm' }, s.balance.reserved),
-      el('td', { class: 'num hide-sm' }, el('span', { class: 'badge ' + (s.balance.unpaid ? 'danger' : s.balance.low ? 'warn' : 'ok'), title: t('credits.left_short', { n: s.balance.available }) },
-        s.balance.total), el('div', { class: 'tiny ' + (s.balance.low ? 'warn-text' : 'muted') }, s.balance.unpaid ? t('credits.unpaid', { n: s.balance.unpaid }) : t('credits.left_short', { n: s.balance.available }))),
-      el('td', { class: 'small hide-sm' }, s.last_visit ? fmtShort(s.last_visit) : '—'),
+      el('td', { class: 'num hide-sm' }, el('span', { class: 'badge left-badge ' + (s.balance.unpaid ? 'danger' : s.balance.low ? 'warn' : 'ok') }, s.balance.available),
+        s.balance.unpaid ? el('div', { class: 'tiny danger-text' }, t('credits.unpaid', { n: s.balance.unpaid })) : null),
+      el('td', { class: 'num hide-sm muted' }, s.balance.total),
+      el('td', { class: 'small hide-sm' }, expiryCell(s)),
       el('td', { class: 'small hide-sm' }, s.next_booking ? fmtShort(s.next_booking.date) + ' ' + s.next_booking.start : '—'),
       el('td', { class: 'num', onclick: (ev) => ev.stopPropagation() }, quickPackageButton(s)))));
-    if (!rows.length) tbody.append(el('tr', {}, el('td', { colspan: 8, class: 'empty' }, t('swimmers.none'))));
+    if (!rows.length) tbody.append(el('tr', {}, el('td', { colspan: 9, class: 'empty' }, t('swimmers.none'))));
   };
   search.addEventListener('input', fill);
   drawFilters();
@@ -1928,8 +1966,8 @@ async function viewSwimmers() {
     el('div', { class: 'card table-wrap' }, el('table', {},
       el('thead', {}, el('tr', {}, el('th', {}, t('fields.name')), el('th', { class: 'num show-sm' }, t('credits.chip_title')),
         el('th', { class: 'num hide-sm', title: t('swimmers.visited_hint') }, t('swimmers.visited')),
-        el('th', { class: 'num hide-sm', title: t('swimmers.planned_hint') }, t('swimmers.planned')), el('th', { class: 'num hide-sm' }, t('swimmers.all')),
-        el('th', { class: 'hide-sm' }, t('swimmers.last_visit')), el('th', { class: 'hide-sm' }, t('swimmers.next')), el('th', { class: 'num' }, t('credits.add_card')))),
+        el('th', { class: 'num hide-sm', title: t('swimmers.planned_hint') }, t('swimmers.planned')), el('th', { class: 'num hide-sm' }, t('swimmers.left')),
+        el('th', { class: 'num hide-sm' }, t('swimmers.all')), el('th', { class: 'hide-sm' }, t('swimmers.expires')), el('th', { class: 'hide-sm' }, t('swimmers.next')), el('th', { class: 'num' }, t('credits.add_card')))),
       tbody)));
 }
 
@@ -2359,7 +2397,7 @@ async function todayCard(s, swimmers, first) {
         el('div', { class: 'small muted' },
           a.credits && a.credits.low ? el('span', { class: 'warn-text' }, '⚠ ' + t('credits.left_short', { n: a.credits.available }) + ' ') : null,
           a.swimmer_note ? '✉️ ' + a.swimmer_note : (a.last_comment ? '💬 ' + a.last_comment.text : ''))),
-      late && !isHere && a.status !== 'no_show' && a.status !== 'excused' && a.phone ? el('a', { class: 'btn small', href: 'tel:' + a.phone, title: a.phone }, '📞') : null,
+      late && !isHere && a.status !== 'no_show' && a.status !== 'excused' && a.phone ? phoneLinks(a.phone, () => '📞', 'btn small') : null,
       canCheck ? el('button', {
         type: 'button', class: 'checkin' + (isHere ? ' on' : ''),
         onclick: () => (isHere ? null : changeStatus(a.booking_id, a.status, 'attended', name, a.protected)),
@@ -2477,7 +2515,7 @@ async function insightsBody() {
   const ins = await api('GET', '/insights');
   const person = (r, extra) => el('li', { class: 'clickable', onclick: () => popup(() => swimmerPopup(r.id)) },
     avatar(r, 30), el('strong', { class: 'grow' }, r.name), el('span', { class: 'muted small' }, extra),
-    r.phone ? el('a', { class: 'btn small ghost', href: 'tel:' + r.phone, onclick: (ev) => ev.stopPropagation() }, '📞') : null);
+    phoneLinks(r.phone, () => '📞', 'btn small ghost'));
   const section = (title, hint, rows) => el('div', { class: 'card' }, h2(title), el('p', { class: 'muted small' }, hint),
     rows.length ? el('ul', { class: 'list' }, rows) : el('p', { class: 'muted' }, t('insights.none')));
   const maxOcc = Math.max(0.01, ...ins.occupancy_by_weekday.map((x) => x || 0));
