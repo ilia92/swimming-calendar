@@ -553,8 +553,8 @@
   "walked_in": "{name} checked in",
   "unmarked": "{n} not marked - they count as attended.",
   "all_here": "Confirm - all came",
-  "extended": "Extended",
-  "compact": "Compact"
+  "collapse": "Collapse",
+  "expand": "Expand"
  },
  "wait": {
   "join": "Waiting list",

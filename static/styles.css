@@ -1006,5 +1006,5 @@ dialog .form.cols:has(.dp-wrap) { align-items: start; }
 .today-detail .visit-note-input { margin-top: .1rem; background: var(--surface); }
 .today-detail .row { gap: .4rem; }
 .training-note { margin: .1rem 0 .5rem; font-weight: 600; }
-.today-head .tabs { margin: 0; }
+.slot-toggle { font-size: 1rem; }
 @media (max-width: 760px) { .today-detail { padding-left: .55rem; } }

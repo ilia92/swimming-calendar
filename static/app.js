@@ -2309,10 +2309,7 @@ async function viewToday() {
   render(
     el('div', { class: 'today-head' },
       el('div', {}, el('h1', {}, '📍 ' + t('nav.today')), el('div', { class: 'muted' }, fmtDay(ds))),
-      el('div', { class: 'row' },
-        tabs([['ext', t('today.extended')], ['compact', t('today.compact')]], todayExtended() ? 'ext' : 'compact',
-          (k) => { localSet('todayView', k); refresh(); }),
-        btn('📣 ' + t('msg.to_today'), () => popup(() => messagePopup('day', ds)), 'small'))),
+      el('div', { class: 'row' }, btn('📣 ' + t('msg.to_today'), () => popup(() => messagePopup('day', ds)), 'small'))),
     el('div', { class: 'today-stats' },
       el('span', {}, el('strong', {}, list.length), ' ' + t('today.trainings')),
       el('span', {}, el('strong', {}, all.length), ' ' + t('today.booked')),
@@ -2326,7 +2323,16 @@ async function viewToday() {
       el('summary', {}, t('today.finished', { n: done.length })), done.map((s) => todayCard(s, sw.swimmers, false))) : null);
 }
 
-const todayExtended = () => localGet('todayView') !== 'compact';
+// every training card starts expanded; the ones the coach collapsed are remembered (per training)
+function collapsedSlots() {
+  try { return new Set(JSON.parse(localGet('todayCollapsed') || '[]')); } catch (e) { return new Set(); }
+}
+function toggleSlot(key) {
+  const set = collapsedSlots();
+  if (set.has(key)) set.delete(key); else set.add(key);
+  localSet('todayCollapsed', JSON.stringify([...set].slice(-60)));
+  refresh();
+}
 
 /** Extended Today: everything from the slot popup under each swimmer, so nothing needs opening. */
 function todayDetails(s, a) {
@@ -2372,7 +2378,7 @@ function trainingNoteInput(s) {
 }
 
 function todayCard(s, swimmers, first) {
-  const ext = todayExtended();
+  const ext = !collapsedSlots().has(s.key);
   const ph = sessionPhase(s);
   const listed = s.attendees.filter((a) => a.status !== 'cancelled' || a.pending);
   const canCheck = ph.key !== 'next' || ph.checkin;
@@ -2423,7 +2429,9 @@ function todayCard(s, swimmers, first) {
       el('span', { class: 'phase ' + ph.key }, ph.text),
       el('span', { class: 'muted small grow' }, [s.title, s.location].filter(Boolean).join(' · ')),
       el('span', { class: 'small nowrap' }, listed.length + '/' + s.capacity),
-      btn('⋯', () => popup(() => sessionPopup(s.key, s.date)), 'small ghost icon')),
+      btn('⋯', () => popup(() => sessionPopup(s.key, s.date)), 'small ghost icon'),
+      el('button', { type: 'button', class: 'btn small ghost icon slot-toggle', title: t(ext ? 'today.collapse' : 'today.expand'),
+        'aria-expanded': ext ? 'true' : 'false', onclick: () => toggleSlot(s.key) }, ext ? '▴' : '▾')),
     ext ? trainingNoteInput(s) : s.note ? el('div', { class: 'visit-note coach small' }, '📢 ' + s.note) : null,
     unmarked.length ? el('div', { class: 'notice end-prompt' }, el('span', { class: 'grow' }, t('today.unmarked', { n: unmarked.length })),
       btn(t('today.all_here'), () => act(async () => {
