@@ -997,3 +997,14 @@ dialog .form.cols:has(.dp-wrap) { align-items: start; }
 .mail-opts.dim { opacity: .55; }
 .att.focus { box-shadow: 0 0 0 3px var(--accent), var(--shadow); animation: att-focus 1.6s ease-out; }
 @keyframes att-focus { 0% { background: var(--accent-soft); } 100% { background: var(--surface); } }
+
+/* =================================================================== v18: extended Today */
+.today-item { border-radius: 12px; background: var(--surface-2); }
+.today-item.here { background: var(--ok-soft); }
+.today-item > .today-row { background: transparent; }
+.today-detail { display: grid; gap: .3rem; padding: 0 .55rem .55rem calc(40px + 1.1rem); }
+.today-detail .visit-note-input { margin-top: .1rem; background: var(--surface); }
+.today-detail .row { gap: .4rem; }
+.training-note { margin: .1rem 0 .5rem; font-weight: 600; }
+.today-head .tabs { margin: 0; }
+@media (max-width: 760px) { .today-detail { padding-left: .55rem; } }

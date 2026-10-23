@@ -2309,7 +2309,10 @@ async function viewToday() {
   render(
     el('div', { class: 'today-head' },
       el('div', {}, el('h1', {}, '📍 ' + t('nav.today')), el('div', { class: 'muted' }, fmtDay(ds))),
-      el('div', { class: 'row' }, btn('📣 ' + t('msg.to_today'), () => popup(() => messagePopup('day', ds)), 'small'))),
+      el('div', { class: 'row' },
+        tabs([['ext', t('today.extended')], ['compact', t('today.compact')]], todayExtended() ? 'ext' : 'compact',
+          (k) => { localSet('todayView', k); refresh(); }),
+        btn('📣 ' + t('msg.to_today'), () => popup(() => messagePopup('day', ds)), 'small'))),
     el('div', { class: 'today-stats' },
       el('span', {}, el('strong', {}, list.length), ' ' + t('today.trainings')),
       el('span', {}, el('strong', {}, all.length), ' ' + t('today.booked')),
@@ -2323,7 +2326,53 @@ async function viewToday() {
       el('summary', {}, t('today.finished', { n: done.length })), done.map((s) => todayCard(s, sw.swimmers, false))) : null);
 }
 
+const todayExtended = () => localGet('todayView') !== 'compact';
+
+/** Extended Today: everything from the slot popup under each swimmer, so nothing needs opening. */
+function todayDetails(s, a) {
+  const commentBox = el('form', {
+    class: 'form hidden comment-form', onsubmit: (ev) => {
+      ev.preventDefault();
+      act(() => api('POST', '/users/' + a.swimmer_id + '/comments', { text: ev.target.elements.text.value, session_key: s.key }), t('common.saved'));
+    },
+  }, el('textarea', { name: 'text', required: true, maxlength: 4000, placeholder: t('comments.placeholder') }),
+  el('div', { class: 'actions' }, el('button', { class: 'btn small primary', type: 'submit' }, t('comments.add'))));
+  return el('div', { class: 'today-detail' },
+    el('div', { class: 'row' }, a.credits ? creditsChip(a.credits) : null,
+      a.phone ? el('a', { href: 'tel:' + a.phone, class: 'small nowrap' }, '📞 ' + a.phone) : null,
+      el('span', { class: 'spacer' }),
+      el('button', { type: 'button', class: 'btn small ghost icon', title: t('comments.private'),
+        onclick: () => { commentBox.classList.toggle('hidden'); commentBox.elements.text.focus(); } }, '🔒💬'),
+      btn(t('session.remove'), async () => {
+        if (await confirmDialog(t('session.confirm_remove', { name: a.member || a.name }), t('session.remove'), true)) {
+          act(() => api('PATCH', '/bookings/' + a.booking_id, { status: 'cancelled' }), t('common.saved'));
+        }
+      }, 'small ghost danger')),
+    a.notes ? el('div', { class: 'att-note small' }, '📌 ' + a.notes) : null,
+    a.last_comment ? el('div', { class: 'att-note small muted', title: fmtTs(a.last_comment.created_at) }, '💬 ' + a.last_comment.text) : null,
+    (a.session_comments || []).map((c) => el('div', { class: 'att-note small session-comment' }, '🔒 ' + c.text, el('span', { class: 'muted' }, ' — ' + c.author_name))),
+    a.swimmer_note ? el('div', { class: 'visit-note swimmer small' }, '✉️ ', a.swimmer_note, el('span', { class: 'muted' }, ' — ' + t('notes.from_swimmer'))) : null,
+    coachAckMarks(a, () => act(() => api('POST', '/bookings/' + a.booking_id + '/resolve'), t('ack.resolved'))),
+    visitNoteInput(a.booking_id, a.note, t('notes.coach_ph')),
+    commentBox);
+}
+
+/** The 📢 training note, editable right on the Today card (same rules as the slot popup). */
+function trainingNoteInput(s) {
+  return el('input', {
+    class: 'visit-note-input training-note', value: s.note, maxlength: 300, placeholder: t('session.note_label'),
+    onchange: (ev) => {
+      const body = { note: ev.target.value, capacity: s.capacity };
+      if (s.cancel_reason === 'coach') body.cancelled = true;
+      else if (s.holiday && !s.cancelled) body.cancelled = false;
+      act(() => api('PUT', '/overrides/' + encodeURIComponent(s.key), body), t('common.saved'));
+    },
+    onkeydown: (ev) => { if (ev.key === 'Enter') ev.target.blur(); },
+  });
+}
+
 function todayCard(s, swimmers, first) {
+  const ext = todayExtended();
   const ph = sessionPhase(s);
   const listed = s.attendees.filter((a) => a.status !== 'cancelled' || a.pending);
   const canCheck = ph.key !== 'next' || ph.checkin;
@@ -2331,11 +2380,11 @@ function todayCard(s, swimmers, first) {
   const rows = listed.map((a) => {
     const isHere = a.status === 'attended' && a.checked;
     const name = a.member || a.name;
-    return el('div', { class: 'today-row' + (isHere ? ' here' : '') + (a.status === 'no_show' || a.status === 'excused' ? ' gone' : '') },
+    const row = el('div', { class: 'today-row' + (isHere ? ' here' : '') + (a.status === 'no_show' || a.status === 'excused' ? ' gone' : '') },
       avatar({ id: a.swimmer_id, name, avatar: a.avatar }, 40),
       el('div', { class: 'grow', onclick: () => openSessionAt(s, a.booking_id) },
         el('strong', {}, name), a.member ? el('span', { class: 'muted small' }, ' · ' + a.name) : null,
-        el('div', { class: 'small muted' },
+        ext ? null : el('div', { class: 'small muted' },
           a.credits && a.credits.low ? el('span', { class: 'warn-text' }, '⚠ ' + t('credits.left_short', { n: a.credits.available }) + ' ') : null,
           a.swimmer_note ? '✉️ ' + a.swimmer_note : (a.last_comment ? '💬 ' + a.last_comment.text : ''))),
       late && !isHere && a.status !== 'no_show' && a.status !== 'excused' && a.phone ? el('a', { class: 'btn small', href: 'tel:' + a.phone, title: a.phone }, '📞') : null,
@@ -2345,6 +2394,7 @@ function todayCard(s, swimmers, first) {
       }, isHere ? '✓ ' + t('today.is_here') : t('today.check_in')) : el('span', { class: 'muted small' }, t('today.opens', { time: hhmm(Math.max(0, mins(s.start) - (S.settings.checkin_early_minutes || 15))) })),
       canCheck && !isHere && a.status !== 'excused' ? btn(t('status.excused'), () => changeStatus(a.booking_id, a.status, 'excused', name, a.protected), 'small ghost excuse-btn')
         : a.status === 'excused' ? el('span', { class: 'badge excused' }, t('status.excused')) : null);
+    return ext ? el('div', { class: 'today-item' + (isHere ? ' here' : '') }, row, todayDetails(s, a)) : row;
   });
   const unmarked = ph.key === 'done' ? listed.filter((a) => a.status === 'attended' && !a.checked) : [];
   const booked = new Set(listed.map((a) => a.swimmer_id + '|' + (a.member || '')));
@@ -2374,7 +2424,7 @@ function todayCard(s, swimmers, first) {
       el('span', { class: 'muted small grow' }, [s.title, s.location].filter(Boolean).join(' · ')),
       el('span', { class: 'small nowrap' }, listed.length + '/' + s.capacity),
       btn('⋯', () => popup(() => sessionPopup(s.key, s.date)), 'small ghost icon')),
-    s.note ? el('div', { class: 'visit-note coach small' }, '📢 ' + s.note) : null,
+    ext ? trainingNoteInput(s) : s.note ? el('div', { class: 'visit-note coach small' }, '📢 ' + s.note) : null,
     unmarked.length ? el('div', { class: 'notice end-prompt' }, el('span', { class: 'grow' }, t('today.unmarked', { n: unmarked.length })),
       btn(t('today.all_here'), () => act(async () => {
         for (const a of unmarked) await api('PATCH', '/bookings/' + a.booking_id, { status: 'attended' });
