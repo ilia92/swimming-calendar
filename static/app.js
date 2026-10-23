@@ -1318,7 +1318,7 @@ function attendeeCard(s, a) {
     a.swimmer_note ? el('div', { class: 'visit-note swimmer small' }, '✉️ ', a.swimmer_note, el('span', { class: 'muted' }, ' — ' + t('notes.from_swimmer'))) : null,
     visitNoteInput(a.booking_id, a.note, t('notes.coach_ph')),
     el('div', { class: 'att-actions' },
-      s.started
+      s.started || s.checkinOpen
         ? el('div', { class: 'segs' }, stBtn('attended', '✓ ' + t('status.attended')), stBtn('no_show', '✗ ' + t('status.no_show')), stBtn('excused', t('status.excused')))
         : null,
       el('span', { class: 'spacer' }),
@@ -1330,8 +1330,11 @@ function attendeeCard(s, a) {
     commentBox);
 }
 
-async function coachSessionBody(s, swimmers) {
+/** opts.checkinOpen: status buttons already before the start (Today, 15 min early).
+ *  opts.walkIn: adding a swimmer also checks them in (Today, during a training). */
+async function coachSessionBody(s, swimmers, opts = {}) {
   const sw = swimmers || (await api('GET', '/swimmers')).swimmers;
+  if (opts.checkinOpen) s = { ...s, checkinOpen: true };
   const listed = s.attendees.filter((a) => a.status !== 'cancelled' || a.pending);
   const freeMembers = (x) => (x.members || []).filter((m) => !listed.some((a) => a.swimmer_id === x.id && a.member === m));
   const avail = sw.filter((x) => x.coach_id === s.coach_id &&
@@ -1340,7 +1343,7 @@ async function coachSessionBody(s, swimmers) {
   const add = !s.cancelled && avail.length ? el('div', { class: 'add-box' },
     combo({
       items: avail,
-      placeholder: '+ ' + t('calendar.add_swimmer'),
+      placeholder: '+ ' + t(opts.walkIn ? 'today.walk_in' : 'calendar.add_swimmer'),
       text: (x) => x.name + ' ' + x.username + ' ' + (x.phone || ''),
       row: (x) => el('span', { class: 'opt-row' }, avatar(x, 26),
         el('span', { class: 'grow ellipsis' }, el('strong', {}, x.name),
@@ -1353,10 +1356,16 @@ async function coachSessionBody(s, swimmers) {
           body.members = await pickMembers(x, freeMembers(x));
           if (!body.members || !body.members.length) return;
         }
-        act(() => api('POST', '/bookings', body), t('calendar.added', { name: x.name }));
+        if (opts.walkIn) {
+          body.force = true;
+          act(async () => {
+            const r = await api('POST', '/bookings', body);       // walk-in: book and check in at once
+            for (const b of r.bookings) await api('PATCH', '/bookings/' + b.id, { status: 'attended' });
+          }, t('today.walked_in', { name: x.name }));
+        } else act(() => api('POST', '/bookings', body), t('calendar.added', { name: x.name }));
       },
     }),
-    el('label', { class: 'check small', title: t('calendar.force_hint') }, force, t('calendar.force'))) : null;
+    opts.walkIn ? null : el('label', { class: 'check small', title: t('calendar.force_hint') }, force, t('calendar.force'))) : null;
 
   // PUT replaces the whole override, so always send what should stay
   const saveOverride = (extra) => {
@@ -2318,9 +2327,9 @@ async function viewToday() {
     data.holidays[ds] ? el('p', { class: 'notice info' }, '🎉 ' + data.holidays[ds][S.lang]) : null,
     list.length ? null : el('div', { class: 'card empty' }, t('today.none'), ' ',
       el('a', { href: '#/calendar' }, t('today.to_calendar'))),
-    open.map((s, i) => todayCard(s, sw.swimmers, i === 0)),
+    await Promise.all(open.map((s, i) => todayCard(s, sw.swimmers, i === 0))),
     done.length ? el('details', { class: 'today-done', open: !open.length },
-      el('summary', {}, t('today.finished', { n: done.length })), done.map((s) => todayCard(s, sw.swimmers, false))) : null);
+      el('summary', {}, t('today.finished', { n: done.length })), await Promise.all(done.map((s) => todayCard(s, sw.swimmers, false)))) : null);
 }
 
 // every training card starts expanded; the ones the coach collapsed are remembered (per training)
@@ -2334,50 +2343,7 @@ function toggleSlot(key) {
   refresh();
 }
 
-/** Extended Today: everything from the slot popup under each swimmer, so nothing needs opening. */
-function todayDetails(s, a) {
-  const commentBox = el('form', {
-    class: 'form hidden comment-form', onsubmit: (ev) => {
-      ev.preventDefault();
-      act(() => api('POST', '/users/' + a.swimmer_id + '/comments', { text: ev.target.elements.text.value, session_key: s.key }), t('common.saved'));
-    },
-  }, el('textarea', { name: 'text', required: true, maxlength: 4000, placeholder: t('comments.placeholder') }),
-  el('div', { class: 'actions' }, el('button', { class: 'btn small primary', type: 'submit' }, t('comments.add'))));
-  return el('div', { class: 'today-detail' },
-    el('div', { class: 'row' }, a.credits ? creditsChip(a.credits) : null,
-      a.phone ? el('a', { href: 'tel:' + a.phone, class: 'small nowrap' }, '📞 ' + a.phone) : null,
-      el('span', { class: 'spacer' }),
-      el('button', { type: 'button', class: 'btn small ghost icon', title: t('comments.private'),
-        onclick: () => { commentBox.classList.toggle('hidden'); commentBox.elements.text.focus(); } }, '🔒💬'),
-      btn(t('session.remove'), async () => {
-        if (await confirmDialog(t('session.confirm_remove', { name: a.member || a.name }), t('session.remove'), true)) {
-          act(() => api('PATCH', '/bookings/' + a.booking_id, { status: 'cancelled' }), t('common.saved'));
-        }
-      }, 'small ghost danger')),
-    a.notes ? el('div', { class: 'att-note small' }, '📌 ' + a.notes) : null,
-    a.last_comment ? el('div', { class: 'att-note small muted', title: fmtTs(a.last_comment.created_at) }, '💬 ' + a.last_comment.text) : null,
-    (a.session_comments || []).map((c) => el('div', { class: 'att-note small session-comment' }, '🔒 ' + c.text, el('span', { class: 'muted' }, ' — ' + c.author_name))),
-    a.swimmer_note ? el('div', { class: 'visit-note swimmer small' }, '✉️ ', a.swimmer_note, el('span', { class: 'muted' }, ' — ' + t('notes.from_swimmer'))) : null,
-    coachAckMarks(a, () => act(() => api('POST', '/bookings/' + a.booking_id + '/resolve'), t('ack.resolved'))),
-    visitNoteInput(a.booking_id, a.note, t('notes.coach_ph')),
-    commentBox);
-}
-
-/** The 📢 training note, editable right on the Today card (same rules as the slot popup). */
-function trainingNoteInput(s) {
-  return el('input', {
-    class: 'visit-note-input training-note', value: s.note, maxlength: 300, placeholder: t('session.note_label'),
-    onchange: (ev) => {
-      const body = { note: ev.target.value, capacity: s.capacity };
-      if (s.cancel_reason === 'coach') body.cancelled = true;
-      else if (s.holiday && !s.cancelled) body.cancelled = false;
-      act(() => api('PUT', '/overrides/' + encodeURIComponent(s.key), body), t('common.saved'));
-    },
-    onkeydown: (ev) => { if (ev.key === 'Enter') ev.target.blur(); },
-  });
-}
-
-function todayCard(s, swimmers, first) {
+async function todayCard(s, swimmers, first) {
   const ext = !collapsedSlots().has(s.key);
   const ph = sessionPhase(s);
   const listed = s.attendees.filter((a) => a.status !== 'cancelled' || a.pending);
@@ -2390,7 +2356,7 @@ function todayCard(s, swimmers, first) {
       avatar({ id: a.swimmer_id, name, avatar: a.avatar }, 40),
       el('div', { class: 'grow', onclick: () => openSessionAt(s, a.booking_id) },
         el('strong', {}, name), a.member ? el('span', { class: 'muted small' }, ' · ' + a.name) : null,
-        ext ? null : el('div', { class: 'small muted' },
+        el('div', { class: 'small muted' },
           a.credits && a.credits.low ? el('span', { class: 'warn-text' }, '⚠ ' + t('credits.left_short', { n: a.credits.available }) + ' ') : null,
           a.swimmer_note ? '✉️ ' + a.swimmer_note : (a.last_comment ? '💬 ' + a.last_comment.text : ''))),
       late && !isHere && a.status !== 'no_show' && a.status !== 'excused' && a.phone ? el('a', { class: 'btn small', href: 'tel:' + a.phone, title: a.phone }, '📞') : null,
@@ -2400,7 +2366,7 @@ function todayCard(s, swimmers, first) {
       }, isHere ? '✓ ' + t('today.is_here') : t('today.check_in')) : el('span', { class: 'muted small' }, t('today.opens', { time: hhmm(Math.max(0, mins(s.start) - (S.settings.checkin_early_minutes || 15))) })),
       canCheck && !isHere && a.status !== 'excused' ? btn(t('status.excused'), () => changeStatus(a.booking_id, a.status, 'excused', name, a.protected), 'small ghost excuse-btn')
         : a.status === 'excused' ? el('span', { class: 'badge excused' }, t('status.excused')) : null);
-    return ext ? el('div', { class: 'today-item' + (isHere ? ' here' : '') }, row, todayDetails(s, a)) : row;
+    return row;
   });
   const unmarked = ph.key === 'done' ? listed.filter((a) => a.status === 'attended' && !a.checked) : [];
   const booked = new Set(listed.map((a) => a.swimmer_id + '|' + (a.member || '')));
@@ -2432,13 +2398,15 @@ function todayCard(s, swimmers, first) {
       btn('⋯', () => popup(() => sessionPopup(s.key, s.date)), 'small ghost icon'),
       el('button', { type: 'button', class: 'btn small ghost icon slot-toggle', title: t(ext ? 'today.collapse' : 'today.expand'),
         'aria-expanded': ext ? 'true' : 'false', onclick: () => toggleSlot(s.key) }, ext ? '▴' : '▾')),
-    ext ? trainingNoteInput(s) : s.note ? el('div', { class: 'visit-note coach small' }, '📢 ' + s.note) : null,
+    s.note ? el('div', { class: 'visit-note coach small' }, '📢 ' + s.note) : null,
     unmarked.length ? el('div', { class: 'notice end-prompt' }, el('span', { class: 'grow' }, t('today.unmarked', { n: unmarked.length })),
       btn(t('today.all_here'), () => act(async () => {
         for (const a of unmarked) await api('PATCH', '/bookings/' + a.booking_id, { status: 'attended' });
       }, t('common.saved')), 'small primary')) : null,
-    rows.length ? el('div', { class: 'today-rows' }, rows) : el('p', { class: 'muted' }, t('calendar.nobody')),
-    walkIn ? el('div', { class: 'add-box' }, walkIn) : null);
+    // expanded: exactly the slot popup's controls; collapsed: the quick check-in list
+    ext ? el('div', { class: 'today-full' }, await coachSessionBody(s, swimmers, { checkinOpen: canCheck, walkIn: ph.key === 'live' }))
+      : [rows.length ? el('div', { class: 'today-rows' }, rows) : el('p', { class: 'muted' }, t('calendar.nobody')),
+        walkIn ? el('div', { class: 'add-box' }, walkIn) : null]);
 }
 
 // ------------------------------------------------------------------ coach: absence, messages, insights
