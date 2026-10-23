@@ -148,6 +148,8 @@
   "show_inactive": "Show inactive",
   "left": "Left",
   "last_visit": "Last visit",
+  "days_left": "({n}d)",
+  "expires": "Expires",
   "next": "Next",
   "none": "No swimmers.",
   "details": "Details",
@@ -174,7 +176,7 @@
   "sort": "Sort",
   "s_name": "By name",
   "s_left": "By visits left",
-  "s_last": "By last visit"
+  "s_expiry": "By expiry date"
  },
  "schedule": {
   "templates": "Visit card templates",

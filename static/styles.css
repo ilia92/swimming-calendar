@@ -231,6 +231,13 @@ dialog::backdrop { background: rgba(10, 20, 30, .45); }
 .grow { flex: 1; min-width: 0; }
 .red { color: var(--red); }
 .warn-text { color: var(--warn); }
+.danger-text { color: var(--danger); }
+/* Viber chat button next to phone numbers; a bigger tap target on phones */
+.phone { display: inline-flex; align-items: center; margin-right: .4rem; }
+a.viber { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-left: .3rem; border-radius: 6px; flex: none; }
+a.viber img { width: 20px; height: 20px; display: block; }
+@media (max-width: 760px) { a.viber { min-width: 32px; min-height: 32px; } a.viber img { width: 26px; height: 26px; } }
+.badge.left-badge { font-size: 1rem; font-weight: 700; min-width: 2.2rem; text-align: center; }
 .dim { opacity: .75; }
 .btn.icon { min-width: 34px; justify-content: center; }
 input.auto, .search { width: auto; max-width: 280px; }
