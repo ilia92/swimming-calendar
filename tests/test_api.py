@@ -511,6 +511,24 @@ class ApiTest(unittest.TestCase):
         util.set_now(datetime(2026, 11, 3, 9, 0, tzinfo=config.tz()))            # window passed on its own
         self.assertFalse(a.ok("GET", "/bookings?from=2026-10-29&to=2026-10-29")["bookings"][0]["can_ack"])
 
+    def test_coach_withdraws_visit_added_to_locked_training(self):
+        a = self.make_swimmer(visits=10)
+        old_key = self.coach.ok("POST", "/extra-sessions", {"date": "2026-10-15", "start": "18:00", "duration_min": 60,
+                                                            "capacity": 4})["session"]["key"]
+        util.set_now(datetime(2026, 10, 23, 9, 0, tzinfo=config.tz()))
+        b = self.coach.ok("POST", "/bookings", {"session_key": old_key, "swimmer_id": a.id})["booking"]
+        self.assertEqual(b["pending"]["status"], "attended")
+        # "Remove" on it withdraws the request instead of silently doing nothing
+        self.assertFalse(self.coach.ok("PATCH", "/bookings/%s" % b["id"], {"status": "cancelled"})["requested"])
+        sess = self.coach.ok("GET", "/sessions?from=2026-10-15&to=2026-10-15")["sessions"][0]
+        self.assertEqual(sess["attendees"], [])
+        self.assertEqual(self.coach.ok("GET", "/bookings?attention=1")["bookings"], [])
+        self.assertEqual(a.ok("GET", "/bookings?attention=1")["bookings"], [])
+        self.assertEqual(a.ok("GET", "/credits/%s" % a.id)["balance"]["used"], 0)
+        # and it can be added again later
+        again = self.coach.ok("POST", "/bookings", {"session_key": old_key, "swimmer_id": a.id})["booking"]
+        self.assertEqual(again["pending"]["status"], "attended")
+
     def test_waitlist(self):
         slot = self.make_slot(capacity=1)
         key = "%s@2026-10-22T18:00" % slot["id"]
