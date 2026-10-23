@@ -1523,6 +1523,18 @@ def update_booking(ctx):
         if status in ("attended", "no_show", "excused") and opens > n:
             raise ApiError(409, "not_started", "the session has not started yet")
         old = credits.effective_status(b, n)
+        if old == status and b.get("pending"):
+            # back to what the record already says: withdraw the open request
+            acks.log(b, ctx.user, "withdrawn", to=b["pending"]["status"])
+            b.pop("pending")
+            b["updated_at"] = stamp()
+            if b.get("reason") == "pending_approval":
+                # a visit only requested for a locked training: it never happened, drop it from the list
+                b["reason"] = "withdrawn"
+                b.pop("unseen", None)
+            store.audit(d, ctx.user["id"], "booking_request_withdrawn", b["id"], coach_id=b["coach_id"],
+                        swimmer=b["swimmer_id"])
+            return booking_out(d, b, ctx.user, n), False
         if old == status:
             return booking_out(d, b, ctx.user, n), False
         if acks.is_protected(b, n) and acks.costs_swimmer(old, status):

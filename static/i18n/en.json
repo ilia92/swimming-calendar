@@ -514,6 +514,7 @@
   "h_requested": "change requested",
   "h_approved": "approved by swimmer",
   "h_rejected": "rejected by swimmer",
+  "h_withdrawn": "request withdrawn by coach",
   "h_confirm": "confirmed",
   "h_dispute": "disputed",
   "h_resolved": "dispute resolved",
