@@ -39,8 +39,8 @@ except `/me`, `/me/password`, `/logout` and `/changes`. `GET /api/v1` lists ever
 | GET / POST | `/users/{id}/comments` | coach | Private coach comments `{text, session_key?}` |
 | PATCH / DELETE | `/comments/{id}` | author, admin | |
 
-`members` is the list of people on a **joint account** (2…`max_members` names). Such an
-account books one place per member.
+`members` is the list of people on a **joint account** (1…`max_members` names, e.g. a parent's account with their kids). Such an
+account books one place per member; with a single member it is picked automatically.
 
 ## Schedule
 

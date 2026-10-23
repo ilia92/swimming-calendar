@@ -417,6 +417,19 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.coach.call("PATCH", "/users/%s" % poor.id, {"members": ["1", "2", "3", "4"]})[1]["error"],
                          "too_many_members")
 
+    def test_parent_account_with_one_kid(self):
+        slot = self.make_slot(capacity=3)
+        key = "%s@2026-10-22T18:00" % slot["id"]
+        mum = self.make_swimmer("mum", "Мария Петрова", visits=5)
+        self.coach.ok("PATCH", "/users/%s" % mum.id, {"members": ["Иво"]})
+        self.assertEqual(self.coach.ok("GET", "/users/%s" % mum.id)["user"]["members"], ["Иво"])
+        # nothing to pick: the only kid is booked
+        out = mum.ok("POST", "/bookings", {"session_key": key})
+        self.assertEqual([b["member"] for b in out["bookings"]], ["Иво"])
+        self.assertEqual(mum.call("POST", "/bookings", {"session_key": key})[1]["error"], "already_booked")
+        coach_sess = self.coach.ok("GET", "/sessions?from=2026-10-22&to=2026-10-22")["sessions"][0]
+        self.assertEqual([(a["member"], a["name"]) for a in coach_sess["attendees"]], [("Иво", "Мария Петрова")])
+
     def test_coach_settings(self):
         slot = self.make_slot()
         key = "%s@2026-10-22T18:00" % slot["id"]

@@ -447,9 +447,9 @@
   "saved": "Photo saved"
  },
  "members": {
-  "label": "Joint account - members (optional)",
+  "label": "Kids / members on this account (optional)",
   "placeholder": "e.g. John Mary  /  John, Mary  /  John; Mary",
-  "hint": "If several people share one card (e.g. kids), list them separated by spaces, commas or semicolons - up to {n}. The account can book each of them into the same slot; every place uses 1 visit."
+  "hint": "If the card is used by someone else (e.g. a parent's account for their kid) or shared by several people, list their first names separated by spaces, commas or semicolons - up to {n}. The account books each of them into a slot; every place uses 1 visit. With one name it is picked automatically."
  },
  "rules": {
   "intro": "These rules apply to you and your swimmers. Changes are saved immediately.",
