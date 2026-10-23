@@ -995,3 +995,5 @@ dialog .form.cols:has(.dp-wrap) { align-items: start; }
 .auto-time .tp { width: 9rem; }
 .mail-opts { display: grid; gap: .6rem; margin-top: .6rem; }
 .mail-opts.dim { opacity: .55; }
+.att.focus { box-shadow: 0 0 0 3px var(--accent), var(--shadow); animation: att-focus 1.6s ease-out; }
+@keyframes att-focus { 0% { background: var(--accent-soft); } 100% { background: var(--surface); } }

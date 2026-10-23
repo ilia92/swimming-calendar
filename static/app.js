@@ -1280,6 +1280,15 @@ function creditsChip(c) {
     c.unpaid ? ' · ' + t('credits.unpaid', { n: c.unpaid }) : null);
 }
 
+/** Open a training's popup with one swimmer's card highlighted and scrolled into view. */
+async function openSessionAt(s, bookingId) {
+  S.focusBooking = bookingId;
+  await popup(() => sessionPopup(s.key, s.date));
+  const card = D.node.querySelector('.att[data-booking="' + bookingId + '"]');
+  if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  setTimeout(() => { S.focusBooking = null; }, 0);   // later redraws of the popup don't keep the highlight
+}
+
 function attendeeCard(s, a) {
   const commentBox = el('form', {
     class: 'form hidden comment-form', onsubmit: (ev) => {
@@ -1293,7 +1302,7 @@ function attendeeCard(s, a) {
   const stBtn = (st, label) => el('button', {
     type: 'button', class: 'seg ' + st + (a.status === st ? ' on' : ''), onclick: () => (a.status === st ? null : setStatus(st)),
   }, label);
-  return el('div', { class: 'att ' + a.status },
+  return el('div', { class: 'att ' + a.status + (S.focusBooking === a.booking_id ? ' focus' : ''), 'data-booking': a.booking_id },
     el('div', { class: 'att-head' },
       avatar({ id: a.swimmer_id, name: a.name, avatar: a.avatar }, 40),
       el('a', { href: '#', class: 'att-name', onclick: (ev) => { ev.preventDefault(); popup(() => swimmerPopup(a.swimmer_id), { keep: true }); } }, a.member || a.name),
@@ -2324,7 +2333,7 @@ function todayCard(s, swimmers, first) {
     const name = a.member || a.name;
     return el('div', { class: 'today-row' + (isHere ? ' here' : '') + (a.status === 'no_show' || a.status === 'excused' ? ' gone' : '') },
       avatar({ id: a.swimmer_id, name, avatar: a.avatar }, 40),
-      el('div', { class: 'grow', onclick: () => popup(() => swimmerPopup(a.swimmer_id)) },
+      el('div', { class: 'grow', onclick: () => openSessionAt(s, a.booking_id) },
         el('strong', {}, name), a.member ? el('span', { class: 'muted small' }, ' · ' + a.name) : null,
         el('div', { class: 'small muted' },
           a.credits && a.credits.low ? el('span', { class: 'warn-text' }, '⚠ ' + t('credits.left_short', { n: a.credits.available }) + ' ') : null,
