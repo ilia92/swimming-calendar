@@ -2397,10 +2397,12 @@ async function todayCard(s, swimmers, first) {
       late && !isHere && a.status !== 'no_show' && a.status !== 'excused' && a.phone ? phoneLinks(a.phone, () => '📞', 'btn small') : null,
       canCheck ? el('button', {
         type: 'button', class: 'checkin' + (isHere ? ' on' : ''),
-        // a mis-tap can be undone until the training ends (afterwards "booked" counts as attended anyway)
+        // a mis-tap can be undone until the training ends (afterwards "booked" counts as attended anyway,
+        // so a finished training opens the popup to pick No-show / Excused instead)
         onclick: async () => {
           if (!isHere) return changeStatus(a.booking_id, a.status, 'attended', name, a.protected);
-          if (ph.key === 'done' || !(await confirmDialog(t('today.undo_confirm', { name }), t('today.undo')))) return;
+          if (ph.key === 'done') return openSessionAt(s, a.booking_id);
+          if (!(await confirmDialog(t('today.undo_confirm', { name }), t('today.undo')))) return;
           return act(() => api('PATCH', '/bookings/' + a.booking_id, { status: 'booked' }), t('common.saved'));
         },
       }, isHere ? '✓ ' + t('today.is_here') : t('today.check_in')) : el('span', { class: 'muted small' }, t('today.opens', { time: hhmm(Math.max(0, mins(s.start) - (S.settings.checkin_early_minutes || 15))) })),
