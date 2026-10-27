@@ -552,6 +552,8 @@
   "opens": "from {time}",
   "walk_in": "Walk-in (not booked)",
   "walked_in": "{name} checked in",
+  "undo": "Undo check-in",
+  "undo_confirm": "Undo check-in for {name}?",
   "unmarked": "{n} not marked - they count as attended.",
   "all_here": "Confirm - all came",
   "collapse": "Collapse",
