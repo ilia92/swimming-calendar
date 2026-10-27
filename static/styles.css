@@ -976,9 +976,8 @@ dialog::backdrop { background: rgba(6, 25, 40, .45); backdrop-filter: blur(2px);
   appearance: none; font: inherit; font-weight: 700; border-radius: 999px; min-height: 42px; min-width: 6.2rem; padding: .35rem .8rem;
   border: 2px solid var(--ok); background: var(--surface); color: var(--ok); cursor: pointer;
 }
-.checkin.on { background: var(--ok); color: #fff; cursor: default; }
+.checkin.on { background: var(--ok); color: #fff; }
 .end-prompt { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: .3rem 0 .5rem; }
-.today-done summary { cursor: pointer; color: var(--muted); font-weight: 600; margin: .4rem 0 .6rem; }
 .wait-box { display: grid; gap: .35rem; background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: .45rem .6rem; }
 .chip.slot.wait { background: var(--warn-soft); color: var(--warn); }
 .wait-banner { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; background: var(--ok-soft); color: var(--ok); margin-bottom: .5rem; }

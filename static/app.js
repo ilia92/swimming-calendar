@@ -2347,12 +2347,11 @@ function sessionPhase(s) {
 async function viewToday() {
   const ds = todayISO();
   const [data, sw] = await Promise.all([api('GET', '/sessions?from=' + ds + '&to=' + ds + '&detail=1'), api('GET', '/swimmers')]);
-  const list = data.sessions.filter((s) => !s.cancelled);
+  const list = data.sessions.filter((s) => !s.cancelled).sort((a, b) => a.start.localeCompare(b.start));
   const all = list.flatMap((s) => s.attendees.filter((a) => a.status !== 'cancelled'));
   const here = all.filter((a) => a.status === 'attended' && a.checked).length;
   const noShow = all.filter((a) => a.status === 'no_show').length;
-  const open = list.filter((s) => sessionPhase(s).key !== 'done');
-  const done = list.filter((s) => sessionPhase(s).key === 'done');
+  const firstOpen = list.find((s) => sessionPhase(s).key !== 'done');
   render(
     el('div', { class: 'today-head' },
       el('div', {}, el('h1', {}, '📍 ' + t('nav.today')), el('div', { class: 'muted' }, fmtDay(ds))),
@@ -2365,9 +2364,7 @@ async function viewToday() {
     data.holidays[ds] ? el('p', { class: 'notice info' }, '🎉 ' + data.holidays[ds][S.lang]) : null,
     list.length ? null : el('div', { class: 'card empty' }, t('today.none'), ' ',
       el('a', { href: '#/calendar' }, t('today.to_calendar'))),
-    await Promise.all(open.map((s, i) => todayCard(s, sw.swimmers, i === 0))),
-    done.length ? el('details', { class: 'today-done', open: !open.length },
-      el('summary', {}, t('today.finished', { n: done.length })), await Promise.all(done.map((s) => todayCard(s, sw.swimmers, false)))) : null);
+    await Promise.all(list.map((s) => todayCard(s, sw.swimmers, s === firstOpen))));
 }
 
 // every training card starts expanded; the ones the coach collapsed are remembered (per training)
@@ -2400,7 +2397,14 @@ async function todayCard(s, swimmers, first) {
       late && !isHere && a.status !== 'no_show' && a.status !== 'excused' && a.phone ? phoneLinks(a.phone, () => '📞', 'btn small') : null,
       canCheck ? el('button', {
         type: 'button', class: 'checkin' + (isHere ? ' on' : ''),
-        onclick: () => (isHere ? null : changeStatus(a.booking_id, a.status, 'attended', name, a.protected)),
+        // a mis-tap can be undone until the training ends (afterwards "booked" counts as attended anyway,
+        // so a finished training opens the popup to pick No-show / Excused instead)
+        onclick: async () => {
+          if (!isHere) return changeStatus(a.booking_id, a.status, 'attended', name, a.protected);
+          if (ph.key === 'done') return openSessionAt(s, a.booking_id);
+          if (!(await confirmDialog(t('today.undo_confirm', { name }), t('today.undo')))) return;
+          return act(() => api('PATCH', '/bookings/' + a.booking_id, { status: 'booked' }), t('common.saved'));
+        },
       }, isHere ? '✓ ' + t('today.is_here') : t('today.check_in')) : el('span', { class: 'muted small' }, t('today.opens', { time: hhmm(Math.max(0, mins(s.start) - (S.settings.checkin_early_minutes || 15))) })),
       canCheck && !isHere && a.status !== 'excused' ? btn(t('status.excused'), () => changeStatus(a.booking_id, a.status, 'excused', name, a.protected), 'small ghost excuse-btn')
         : a.status === 'excused' ? el('span', { class: 'badge excused' }, t('status.excused')) : null);
