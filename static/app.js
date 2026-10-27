@@ -2347,12 +2347,11 @@ function sessionPhase(s) {
 async function viewToday() {
   const ds = todayISO();
   const [data, sw] = await Promise.all([api('GET', '/sessions?from=' + ds + '&to=' + ds + '&detail=1'), api('GET', '/swimmers')]);
-  const list = data.sessions.filter((s) => !s.cancelled);
+  const list = data.sessions.filter((s) => !s.cancelled).sort((a, b) => a.start.localeCompare(b.start));
   const all = list.flatMap((s) => s.attendees.filter((a) => a.status !== 'cancelled'));
   const here = all.filter((a) => a.status === 'attended' && a.checked).length;
   const noShow = all.filter((a) => a.status === 'no_show').length;
-  const open = list.filter((s) => sessionPhase(s).key !== 'done');
-  const done = list.filter((s) => sessionPhase(s).key === 'done');
+  const firstOpen = list.find((s) => sessionPhase(s).key !== 'done');
   render(
     el('div', { class: 'today-head' },
       el('div', {}, el('h1', {}, '📍 ' + t('nav.today')), el('div', { class: 'muted' }, fmtDay(ds))),
@@ -2365,9 +2364,7 @@ async function viewToday() {
     data.holidays[ds] ? el('p', { class: 'notice info' }, '🎉 ' + data.holidays[ds][S.lang]) : null,
     list.length ? null : el('div', { class: 'card empty' }, t('today.none'), ' ',
       el('a', { href: '#/calendar' }, t('today.to_calendar'))),
-    await Promise.all(open.map((s, i) => todayCard(s, sw.swimmers, i === 0))),
-    done.length ? el('details', { class: 'today-done', open: !open.length },
-      el('summary', {}, t('today.finished', { n: done.length })), await Promise.all(done.map((s) => todayCard(s, sw.swimmers, false)))) : null);
+    await Promise.all(list.map((s) => todayCard(s, sw.swimmers, s === firstOpen))));
 }
 
 // every training card starts expanded; the ones the coach collapsed are remembered (per training)
