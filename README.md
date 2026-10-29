@@ -39,7 +39,8 @@ report is written to disk as a fallback that doesn't depend on the web app.
 - **Insights:** swimmers not seen for 3+ weeks, cards expiring within 14 days, few visits
   left, busiest times, and occupancy by weekday.
 - **Availability:** "Mon–Fri 07:00–12:00" is split automatically into slots. "+ Слот"
-  creates a one-off slot or a weekly repeating one. Changing the hours keeps past
+  creates a one-off slot or a weekly repeating one. A repeating one without an end date
+  runs 3 months (`window_months`); set a later date to keep it longer. Changing the hours keeps past
   sessions in the history and moves upcoming bookings along.
 - **A slot shows** the booked swimmers with photo, phone, visits left and notes. From
   there the coach can:
@@ -150,6 +151,7 @@ coach can override them in the app.
 | `mail_sender`, `mail_helo` | empty | e.g. `Плувен календар <noreply@ka6ta.eu>` and `ka6ta.eu`. Empty = no e-mail |
 | `max_capacity` | 8 | hard maximum of swimmers per slot |
 | `max_members` | 3 | people on a joint account |
+| `window_months` | 3 | a repeating slot without an end date runs this many months from its start |
 | `cancel_cutoff_hours`, `booking_horizon_days`, `low_credit_threshold`, `default_slot_minutes` | 12, 28, 2, 45 | defaults for each coach's rules |
 | `cookie_secure` | false | set `true` once served over HTTPS only |
 | `backup_dir`, `backup_keep` | ../backup_swimming_calendar, 1000 | |

@@ -50,8 +50,8 @@ A session key is `"<window_id>@YYYY-MM-DDTHH:MM"` for a slot of an availability 
 | Method | Path | Who | Notes |
 |---|---|---|---|
 | GET | `/sessions?from=&to=&coach_id=&detail=1` | user | Max 62 days. Each session has `booked`, `free`, `started`, `cancelled`. Coaches also get `attendees` (with `member`, `note`, `swimmer_note`, and with `detail=1` also `credits`, `phone` and comments) plus `called_off`. Swimmers get `my_bookings`, `free_members` and `can_book`. The response also includes `holidays` |
-| GET / POST | `/availability` | coach | POST `{weekdays: [0=Mon…6], start, end, slot_minutes?, capacity?, location?, title?, valid_from?, valid_to?}` creates one window per weekday |
-| PATCH / DELETE | `/availability/{id}` | coach | Changing the timing starts a new version from today, keeping past sessions. Upcoming bookings move along or are cancelled |
+| GET / POST | `/availability` | coach | POST `{weekdays: [0=Mon…6], start, end, slot_minutes?, capacity?, location?, title?, valid_from?, valid_to?}` creates one window per weekday. Without `valid_to` it ends `window_months` (3) after `valid_from` |
+| PATCH / DELETE | `/availability/{id}` | coach | Changing the timing starts a new version from today, keeping past sessions. `valid_to: null` (or editing an older open-ended window) sets the end to `window_months` from today. Upcoming bookings move along or are cancelled |
 | POST | `/extra-sessions` | coach | `{date, start, end?, duration_min, capacity, …}`. With `end`, the range is split into slots |
 | PUT | `/overrides/{key}` | coach | `{cancelled?, capacity?, note?}` for one date. Cancelling releases the bookings (the swimmers see why), and restoring re-books them |
 | DELETE | `/overrides/{key}` | coach | Puts that date back on the normal schedule |

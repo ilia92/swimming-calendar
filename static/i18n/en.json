@@ -209,7 +209,7 @@
   "visits": "Visits",
   "valid_days": "Valid for (days)",
   "unlimited": "no expiry",
-  "no_end": "no end"
+  "default_end": "{n} months from the start"
  },
  "status": {
   "booked": "booked",

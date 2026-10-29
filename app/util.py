@@ -62,6 +62,14 @@ def parse_date(value, field="date"):
         raise ApiError(400, "invalid_field", "%s is not a valid date" % field, field=field)
 
 
+def add_months(day, n):
+    """The same day n months later, clamped to the month's last day (Nov 30 + 3 -> Feb 28)."""
+    y, m = divmod(day.month - 1 + n, 12)
+    y, m = day.year + y, m + 1
+    nxt = date(y + (m == 12), m % 12 + 1, 1)
+    return min(day.replace(year=y, month=m, day=1) + timedelta(days=day.day - 1), nxt - timedelta(days=1))
+
+
 def parse_time(value, field="start"):
     if not isinstance(value, str) or not TIME_RE.match(value):
         raise ApiError(400, "invalid_field", "%s must be HH:MM" % field, field=field)

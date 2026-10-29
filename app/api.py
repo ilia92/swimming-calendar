@@ -13,7 +13,7 @@ import re
 from datetime import date, timedelta
 
 from . import acks, auth, config, credits, prefs, reports, schedule, store
-from .util import (ApiError, add_minutes, clean_str, local_dt, new_id, now, parse_date, parse_int, parse_time, stamp,
+from .util import (ApiError, add_minutes, add_months, clean_str, local_dt, new_id, now, parse_date, parse_int, parse_time, stamp,
                    today)
 
 ROUTES = []
@@ -195,7 +195,7 @@ def _coach_contact(user):
 def _effective_settings(user):
     with store.LOCK:
         out = prefs.for_user(store.current(), user)
-    out.update({k: config.CONFIG[k] for k in ("timezone", "default_lang", "max_capacity", "max_members", "ack_window_days", "checkin_early_minutes")})
+    out.update({k: config.CONFIG[k] for k in ("timezone", "default_lang", "max_capacity", "max_members", "ack_window_days", "checkin_early_minutes", "window_months")})
     return out
 
 
@@ -1010,6 +1010,14 @@ def _window_fields(body, partial):
     return out
 
 
+def _window_end(body, start):
+    """valid_to from the request, or - when left empty - `window_months` from `start`, so no
+    window repeats forever."""
+    if body.get("valid_to"):
+        return parse_date(body["valid_to"], "valid_to").isoformat()
+    return (add_months(start, config.CONFIG["window_months"]) - timedelta(days=1)).isoformat()
+
+
 def _check_window(w):
     if schedule.minutes(w["end"]) - schedule.minutes(w["start"]) < w["slot_minutes"]:
         raise ApiError(400, "window_too_short", "the time range must fit at least one slot", field="end")
@@ -1080,7 +1088,7 @@ def create_availability(ctx):
         fields = _window_fields(ctx.body, False)
         valid_from = parse_date(ctx.b("valid_from"), "valid_from").isoformat() if ctx.b("valid_from") \
             else today().isoformat()
-        valid_to = parse_date(ctx.b("valid_to"), "valid_to").isoformat() if ctx.b("valid_to") else None
+        valid_to = _window_end(ctx.body, date.fromisoformat(valid_from))
         out = []
         for wd in days:
             w = {"id": new_id("a"), "coach_id": coach_id, "weekday": wd, **fields, "valid_from": valid_from,
@@ -1101,10 +1109,12 @@ def update_availability(ctx):
     def fn(d):
         w = _owned(d, "availability", ctx.params["aid"], ctx.user, "availability")
         fields = _window_fields(ctx.body, True)
-        if "valid_to" in ctx.body:
-            fields["valid_to"] = parse_date(ctx.b("valid_to"), "valid_to").isoformat() if ctx.b("valid_to") else None
-        timing_changed = any(k in fields and fields[k] != w[k] for k in TIMING)
         effective = _window_in_use_from(w, now()).isoformat()
+        if "valid_to" in ctx.body or not w.get("valid_to"):
+            # cleared (or an older open-ended window): run window_months from now, or from its start
+            # if that is still ahead
+            fields["valid_to"] = _window_end(ctx.body, date.fromisoformat(max(w.get("valid_from") or "", effective)))
+        timing_changed = any(k in fields and fields[k] != w[k] for k in TIMING)
         target = w
         if timing_changed and (w.get("valid_from") or "") < effective:
             new = dict(w, **fields, id=new_id("a"), valid_from=effective, created_at=stamp())
