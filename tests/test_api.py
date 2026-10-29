@@ -317,6 +317,16 @@ class ApiTest(unittest.TestCase):
         sess = self.coach.ok("GET", "/sessions?from=2027-01-21&to=2027-02-28")["sessions"]
         self.assertEqual({s["source_id"] for s in sess}, {later["id"]})              # nothing repeats past its end
 
+    def test_until_cannot_hide_sessions_that_already_happened(self):
+        w = self.coach.ok("POST", "/availability", {"weekdays": [2], "start": "08:00", "end": "09:00",
+                                                    "valid_from": "2026-10-01"})["availability"][0]
+        # T0 is Wednesday 2026-10-21 10:00 - that day's 08:00 session has already happened
+        status, out = self.coach.call("PATCH", "/availability/%s" % w["id"], {"valid_to": "2026-10-10"})
+        self.assertEqual((status, out["error"]), (400, "valid_to_in_past"))
+        self.assertEqual(len(self.coach.ok("GET", "/sessions?from=2026-10-01&to=2026-10-21")["sessions"]), 3)    # Oct 7, 14, 21 still there
+        out = self.coach.ok("PATCH", "/availability/%s" % w["id"], {"valid_to": "2026-10-21"})
+        self.assertEqual(out["availability"]["valid_to"], "2026-10-21")
+
     def test_changing_hours_keeps_history_and_moves_bookings(self):
         w = self.coach.ok("POST", "/availability", {"weekdays": [2], "start": "08:00", "end": "09:30"})["availability"][0]
         a = self.make_swimmer(visits=10)

@@ -339,6 +339,7 @@
   "too_large": "Request too large.",
   "method_not_allowed": "Invalid request.",
   "window_too_short": "The time range must fit at least one slot.",
+  "valid_to_in_past": "There are past trainings after this date - choose today or later.",
   "invalid_image": "Unsupported image format.",
   "image_too_large": "The picture is too large.",
   "session_has_attendees": "Swimmers are booked - remove them or cancel the training instead.",

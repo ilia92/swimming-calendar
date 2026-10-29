@@ -1114,6 +1114,11 @@ def update_availability(ctx):
             # cleared (or an older open-ended window): run window_months from now, or from its start
             # if that is still ahead
             fields["valid_to"] = _window_end(ctx.body, date.fromisoformat(max(w.get("valid_from") or "", effective)))
+            # an end before the last session that already happened would hide it from the history
+            # (delete_availability ends a window the same way: the day before `effective`)
+            if fields["valid_to"] < (date.fromisoformat(effective) - timedelta(days=1)).isoformat():
+                raise ApiError(400, "valid_to_in_past", "valid_to would hide sessions that already happened",
+                               field="valid_to")
         timing_changed = any(k in fields and fields[k] != w[k] for k in TIMING)
         target = w
         if timing_changed and (w.get("valid_from") or "") < effective:
