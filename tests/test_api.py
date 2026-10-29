@@ -298,6 +298,25 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.coach.call("POST", "/availability", {"weekdays": [1], "start": "08:00",
                                                                    "end": "08:30"})[1]["error"], "window_too_short")
 
+    def test_repeating_window_ends_after_3_months_unless_set(self):
+        w = self.coach.ok("POST", "/availability", {"weekdays": [3], "start": "08:00", "end": "09:00"})["availability"][0]
+        self.assertEqual((w["valid_from"], w["valid_to"]), ("2026-10-21", "2027-01-20"))
+        later = self.coach.ok("POST", "/availability", {"weekdays": [4], "start": "08:00", "end": "09:00",
+                                                        "valid_from": "2026-11-30"})["availability"][0]
+        self.assertEqual(later["valid_to"], "2027-02-27")                        # Feb 28 is the clamp, minus a day
+        long = self.coach.ok("POST", "/availability", {"weekdays": [1], "start": "08:00", "end": "09:00",
+                                                       "valid_to": "2027-06-30"})["availability"][0]
+        self.assertEqual(long["valid_to"], "2027-06-30")
+        # clearing the end date on an edit starts 3 months from now again
+        out = self.coach.ok("PATCH", "/availability/%s" % long["id"], {"valid_to": None})
+        self.assertEqual(out["availability"]["valid_to"], "2027-01-20")
+        # an older open-ended window gets an end when its hours change
+        store.mutate(lambda d: d["availability"][w["id"]].update(valid_to=None))
+        out = self.coach.ok("PATCH", "/availability/%s" % w["id"], {"start": "07:00"})
+        self.assertEqual((out["availability"]["valid_from"], out["availability"]["valid_to"]), ("2026-10-21", "2027-01-20"))
+        sess = self.coach.ok("GET", "/sessions?from=2027-01-21&to=2027-02-28")["sessions"]
+        self.assertEqual({s["source_id"] for s in sess}, {later["id"]})              # nothing repeats past its end
+
     def test_changing_hours_keeps_history_and_moves_bookings(self):
         w = self.coach.ok("POST", "/availability", {"weekdays": [2], "start": "08:00", "end": "09:30"})["availability"][0]
         a = self.make_swimmer(visits=10)

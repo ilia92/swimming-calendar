@@ -1609,7 +1609,7 @@ function availabilityForm(w, defaults) {
     field(t('fields.location'), el('input', { name: 'location', value: w.location || '', maxlength: 100 }))),
   el('div', { class: 'form cols' },
     editing ? null : field(t('fields.valid_from'), datePicker('valid_from', w.valid_from || todayISO())),
-    field(t('fields.valid_to'), datePicker('valid_to', w.valid_to || '', { optional: true, placeholder: t('fields.no_end') }))),
+    field(t('fields.valid_to'), datePicker('valid_to', w.valid_to || '', { optional: true, placeholder: t('fields.default_end', { n: S.settings.window_months || 3 }) }))),
   editing ? el('p', { class: 'muted small' }, t('availability.edit_note')) : null,
   el('div', { class: 'actions' },
     editing ? btn(t('common.delete'), async () => {
@@ -1640,7 +1640,7 @@ function createSlotPopup(ds, start) {
       [0, 1, 2, 3, 4, 5, 6].map((i) => el('label', { class: 'wd' + (i >= 5 ? ' weekend' : '') },
         el('input', { type: 'checkbox', name: 'weekdays', value: i, 'data-multi': '1', checked: i === (parseISO(ds).getDay() + 6) % 7 }),
         el('span', {}, weekdayName(i, 'short')))))),
-    field(t('slot.until'), datePicker('valid_to', '', { optional: true, placeholder: t('fields.no_end') })));
+    field(t('slot.until'), datePicker('valid_to', '', { optional: true, placeholder: t('fields.default_end', { n: S.settings.window_months || 3 }) })));
   const form = el('form', {
     class: 'form', onsubmit: async (ev) => {
       ev.preventDefault();
