@@ -438,13 +438,42 @@ class ApiTest(unittest.TestCase):
         fam.ok("DELETE", "/bookings/%s" % out["bookings"][0]["id"])
         sess = fam.ok("GET", "/sessions?from=2026-10-22&to=2026-10-22")["sessions"][0]
         self.assertEqual((len(sess["my_bookings"]), sess["can_book"]), (1, True))
-        # not enough visits for two -> nothing is booked
+        # not enough visits for two (and no credit) -> nothing is booked
+        self.coach.ok("PUT", "/me/settings", {"credit_limit": 0})
         poor = self.make_swimmer("poor", "Двама", visits=1)
         self.coach.ok("PATCH", "/users/%s" % poor.id, {"members": ["А", "Б"]})
         self.assertEqual(poor.call("POST", "/bookings", {"session_key": key, "members": ["А", "Б"]})[1]["error"], "no_credits")
         self.assertEqual(poor.ok("GET", "/credits/%s" % poor.id)["balance"]["reserved"], 0)
         self.assertEqual(self.coach.call("PATCH", "/users/%s" % poor.id, {"members": ["1", "2", "3", "4"]})[1]["error"],
                          "too_many_members")
+
+    def test_booking_on_credit_and_card_count(self):
+        slot = self.make_slot(capacity=8)
+        keys = ["%s@2026-10-%dT18:00" % (slot["id"], day) for day in (22, 29)] + \
+               ["%s@2026-11-%02dT18:00" % (slot["id"], day) for day in (5, 12)]
+        a = self.make_swimmer("anna", "Анна", visits=1)
+        a.ok("POST", "/bookings", {"session_key": keys[0]})                       # the paid one
+        bal = a.ok("GET", "/credits/%s" % a.id)["balance"]
+        self.assertEqual((bal["available"], bal["card_total"], bal["credit_limit"]), (0, 0, 2))
+        a.ok("POST", "/bookings", {"session_key": keys[1]})                       # default credit: 2
+        a.ok("POST", "/bookings", {"session_key": keys[2]})
+        self.assertEqual(a.call("POST", "/bookings", {"session_key": keys[3]})[1]["error"], "no_credits")
+        self.assertEqual(a.ok("GET", "/credits/%s" % a.id)["balance"]["unpaid"], 2)
+        # the coach can still book past the credit on purpose
+        self.coach.ok("POST", "/bookings", {"session_key": keys[3], "swimmer_id": a.id, "force": True})
+        # a new card pays the debt off and starts a fresh count: 12 - 3 owed = 9 of 12
+        util.set_now(datetime(2026, 10, 21, 11, 0, tzinfo=config.tz()))
+        self.coach.ok("POST", "/packages", {"swimmer_id": a.id, "visits": 12})
+        bal = a.ok("GET", "/credits/%s" % a.id)["balance"]
+        self.assertEqual((bal["unpaid"], bal["available"], bal["card_total"], bal["total"]), (0, 9, 12, 13))
+        # never had a card -> no credit
+        self.assertEqual(self.make_swimmer("new", "Нов").call("POST", "/bookings", {"session_key": keys[0]})[1]["error"],
+                         "no_credits")
+        # the coach can turn credit off
+        b = self.make_swimmer("boris", "Борис", visits=1)
+        self.coach.ok("PUT", "/me/settings", {"credit_limit": 0})
+        b.ok("POST", "/bookings", {"session_key": keys[0]})
+        self.assertEqual(b.call("POST", "/bookings", {"session_key": keys[1]})[1]["error"], "no_credits")
 
     def test_parent_account_with_one_kid(self):
         slot = self.make_slot(capacity=3)

@@ -11,6 +11,9 @@ counts as a visit consumes one credit:
 Visits are allocated to packages in date order, oldest-expiring package first, and a
 visit can only use a package still valid on the visit date. Visits no package covers
 are "unpaid" (shown to the coach as debt); adding a package later covers them.
+
+Credit: a swimmer who has had a card may book up to `credit_limit` (a coach setting) visits
+more than they have left; those show as unpaid until the next card covers them.
 """
 
 from datetime import date
@@ -83,9 +86,13 @@ def balance(d, swimmer_id, now=None, extra_visit=None):
         if remaining[p["id"]] > 0:
             by_date[p.get("valid_until")] = by_date.get(p.get("valid_until"), 0) + remaining[p["id"]]
     expiry = [{"date": k, "remaining": v} for k, v in sorted(by_date.items(), key=lambda kv: kv[0] or "9999-12-31")]
+    # "5 of 12 left" counts only the cards in use: used-up and expired ones drop out
+    current = [p for p in active if remaining[p["id"]] > 0]
     return {
         "expiry": expiry,
         "total": sum(p["visits"] for p in packages),
+        "card_total": sum(p["visits"] for p in current),
+        "credit_limit": credit_limit(d, swimmer_id) if packages else 0,
         "used": len(used_dates),
         "reserved": len(reserved_dates) - (1 if extra_visit else 0),
         "available": available,
@@ -101,11 +108,25 @@ def _low_threshold(d, swimmer_id):
     return prefs.for_coach(d, u.get("coach_id"))["low_credit_threshold"]
 
 
+def credit_limit(d, swimmer_id):
+    u = d["users"].get(swimmer_id) or {}
+    return prefs.for_coach(d, u.get("coach_id"))["credit_limit"]
+
+
+def within_credit(d, swimmer_id, unpaid_before, unpaid_after):
+    """May a booking that changed unpaid visits from before to after go ahead?
+    Never-carded swimmers get no credit; the rest may owe up to the coach's credit_limit."""
+    if unpaid_after <= unpaid_before:
+        return True
+    has_card = any(p["swimmer_id"] == swimmer_id for p in d["packages"].values())
+    return has_card and unpaid_after <= credit_limit(d, swimmer_id)
+
+
 def can_afford(d, swimmer_id, visit_date_iso, now=None):
-    """Would one more visit on this date still be covered by a package?"""
+    """Would one more visit on this date be covered by a package or the allowed credit?"""
     before = balance(d, swimmer_id, now)["unpaid"]
     after = balance(d, swimmer_id, now, extra_visit=visit_date_iso)["unpaid"]
-    return after == before
+    return within_credit(d, swimmer_id, before, after)
 
 
 def finalize_past(d, now=None):

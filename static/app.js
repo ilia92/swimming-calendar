@@ -95,13 +95,30 @@ function el(tag, attrs, ...children) {
 const clean = (nodes) => nodes.flat(Infinity).filter((n) => n !== null && n !== undefined && n !== false);
 function render(...nodes) { document.getElementById('app').replaceChildren(...clean(nodes)); }
 
+/** Open dialogs live in the browser's top layer, above any z-index, and their blurred backdrop
+ *  would cover the toasts. So the toast box is a popover too, re-shown to sit above the newest dialog. */
+function raiseToasts() {
+  const box = document.getElementById('toasts');
+  if (!box.showPopover) return;               // old browser: plain z-index fallback
+  try {
+    if (box.matches(':popover-open')) box.hidePopover();
+    if (box.children.length) box.showPopover();
+  } catch { /* not connected yet */ }
+}
+
+function openModal(d) {
+  d.showModal();
+  raiseToasts();
+}
+
 function toast(msg, kind, action) {
   const n = el('div', { class: 'toast ' + (kind || '') }, el('span', {}, msg),
     action ? el('button', { type: 'button', class: 'toast-action', onclick: () => { n.remove(); action.fn(); } }, action.label) : null);
   const box = document.getElementById('toasts');
   while (box.children.length >= 2) box.firstChild.remove();
   box.append(n);
-  setTimeout(() => n.remove(), action ? 7000 : kind === 'error' ? 6000 : 3000);
+  raiseToasts();
+  setTimeout(() => { n.remove(); if (!box.children.length) raiseToasts(); }, action ? 7000 : kind === 'error' ? 6000 : 3000);
 }
 
 const badge = (status, b) => (b && b.reason === 'pending_approval'
@@ -122,6 +139,15 @@ function formData(form) {
     } else out[x.name] = x.value;
   }
   return out;
+}
+
+/** A long list shows its first `n` items plus a "Show N more" button that reveals the rest. */
+function expandable(wrap, items, render, n = 12) {
+  const box = wrap(items.slice(0, n).map(render));
+  if (items.length <= n) return box;
+  const more = el('button', { type: 'button', class: 'btn small ghost show-more' }, t('common.show_more', { n: items.length - n }));
+  more.onclick = () => { box.replaceWith(wrap(items.map(render))); more.remove(); };
+  return el('div', {}, box, more);
 }
 
 function tabs(items, current, onPick) {
@@ -408,7 +434,8 @@ function errText(e) {
 async function act(fn, okMsg) {
   try {
     const out = await fn();
-    if (okMsg) toast(typeof okMsg === 'function' ? okMsg(out) : okMsg);
+    const msg = typeof okMsg === 'function' ? okMsg(out) : okMsg;
+    if (msg) toast(msg);
     await refreshAll();
     return out || true;
   } catch (e) {
@@ -445,7 +472,7 @@ async function renderDialog() {
     btn('✕', closeDialog, 'ghost small icon'));
   D.node.classList.toggle('wide', !!builder.wide);
   D.node.replaceChildren(head, ...clean([content]));
-  if (!D.node.open) D.node.showModal();
+  if (!D.node.open) openModal(D.node);
 }
 
 function backDialog() { D.stack.pop(); if (D.stack.length) renderDialog(); else closeDialog(); }
@@ -462,7 +489,7 @@ function confirmDialog(message, okLabel, danger) {
     c.replaceChildren(el('p', {}, message), el('div', { class: 'actions' },
       btn(t('common.cancel'), () => done(false)),
       btn(okLabel || t('common.ok'), () => done(true), danger ? 'danger solid' : 'primary')));
-    c.showModal();
+    openModal(c);
   });
 }
 
@@ -867,16 +894,18 @@ function expiryText(bal) {
 
 function creditsBar(bal) {
   const exp = expiryText(bal);
-  const pct = bal.total ? Math.round(bal.available / Math.max(1, bal.available + bal.used + bal.reserved) * 100) : 0;
+  const pct = bal.card_total ? Math.round(Math.max(0, bal.available) / bal.card_total * 100) : 0;
+  const credit = bal.available <= 0 && bal.credit_limit > bal.unpaid ? bal.credit_limit - bal.unpaid : 0;
   return el('div', { class: 'credits-bar' + (bal.low ? ' low' : ''), onclick: isCoach() ? null : () => popup(myVisitsPopup) },
     el('span', { class: 'big ring', style: '--pct:' + pct, title: pct + '%' }, el('span', {}, String(bal.available))),
     el('div', { class: 'grow' },
-      el('div', {}, el('strong', {}, t('credits.left_of', { left: bal.available, total: bal.total })),
+      el('div', {}, el('strong', {}, bal.card_total ? t('credits.left_of', { left: bal.available, total: bal.card_total }) : t('credits.left_n', { left: bal.available })),
         exp ? el('span', { class: 'expiry' + (exp.soon ? ' soon' : '') }, ' · ' + (exp.soon ? '⏰ ' : '') + exp.text) : null,
         bal.unpaid ? el('span', { class: 'badge danger', style: 'margin-left:.4rem' }, t('credits.unpaid', { n: bal.unpaid })) : null),
       el('div', { class: 'meter' }, el('span', { style: 'width:' + pct + '%' })),
       el('div', { class: 'muted small' }, t('credits.used_reserved', { used: bal.used, reserved: bal.reserved }),
-        bal.low ? el('span', { class: 'warn-text' }, ' · ' + t(isCoach() ? 'credits.low_coach' : 'credits.low_hint')) : null)));
+        bal.low && !credit ? el('span', { class: 'warn-text' }, ' · ' + t(isCoach() ? 'credits.low_coach' : 'credits.low_hint')) : null,
+        credit ? el('span', { class: 'warn-text' }, ' · ' + t(isCoach() ? 'credits.on_credit_coach' : 'credits.on_credit', { n: credit })) : null)));
 }
 
 function dayClasses(ds, holidays) {
@@ -1250,6 +1279,7 @@ function visitNotes(b, opts = {}) {
 
 function bookHint(n) {
   const left = S.balance ? S.balance.available : '?';
+  if (S.balance && n > S.balance.available) return t('session.book_hint_credit', { h: S.settings.cancel_cutoff_hours });
   return t(n === 1 ? 'session.book_hint' : 'session.book_hint_many', { n, left, h: S.settings.cancel_cutoff_hours });
 }
 
@@ -1270,7 +1300,7 @@ function pickMembers(account, free) {
           answer = boxes.map((b) => b.querySelector('input')).filter((x) => x.checked).map((x) => x.value);
           c.close();
         }, 'primary')));
-    c.showModal();
+    openModal(c);
   });
 }
 
@@ -1389,7 +1419,15 @@ async function coachSessionBody(s, swimmers, opts = {}) {
             const r = await api('POST', '/bookings', body);       // walk-in: book and check in at once
             for (const b of r.bookings) await api('PATCH', '/bookings/' + b.id, { status: 'attended' });
           }, t('today.walked_in', { name: x.name }));
-        } else act(() => api('POST', '/bookings', body), t('calendar.added', { name: x.name }));
+        } else {
+          act(async () => {
+            try { return await api('POST', '/bookings', body); } catch (e) {
+              if (!(e instanceof ApiErr && e.code === 'no_credits')) throw e;
+              if (!(await confirmDialog(t('calendar.confirm_no_credits', { name: x.name }), t('calendar.book_anyway')))) return null;
+              return api('POST', '/bookings', { ...body, force: true });
+            }
+          }, (r) => r ? t('calendar.added', { name: x.name }) : null);
+        }
       },
     }),
     opts.walkIn ? null : el('label', { class: 'check small', title: t('calendar.force_hint') }, force, t('calendar.force'))) : null;
@@ -1463,7 +1501,7 @@ function promptText(message, placeholder, okLabel) {
     c.replaceChildren(el('p', {}, message), box, el('div', { class: 'actions' },
       btn(t('common.cancel'), () => c.close()),
       btn(okLabel, () => { if (!box.value.trim()) { box.focus(); return; } answer = box.value.trim(); c.close(); }, 'danger solid')));
-    c.showModal();
+    openModal(c);
     box.focus();
   });
 }
@@ -1715,7 +1753,7 @@ async function myVisitsPopup() {
     h2(t('visits.upcoming')),
     upcoming.length ? el('ul', { class: 'list' }, upcoming.map((b) => bookingRow(b, true))) : el('p', { class: 'muted' }, t('visits.none_upcoming')),
     h2(t('visits.history')),
-    past.length ? el('ul', { class: 'list' }, past.slice(0, 50).map((b) => bookingRow(b, false))) : el('p', { class: 'muted' }, t('visits.none_history')),
+    past.length ? expandable((li) => el('ul', { class: 'list' }, li), past, (b) => bookingRow(b, false)) : el('p', { class: 'muted' }, t('visits.none_history')),
     h2(t('visits.packages')),
     packagesList(out.balance.packages, false),
   ];
@@ -1748,7 +1786,7 @@ function bookingRow(b, withCancel) {
 
 function packagesList(packages, coachView) {
   if (!packages.length) return el('p', { class: 'muted' }, t('credits.no_packages'));
-  return el('ul', { class: 'list' }, packages.map((p) => el('li', {},
+  return expandable((li) => el('ul', { class: 'list' }, li), packages, (p) => el('li', {},
     el('strong', {}, t('credits.package_visits', { n: p.visits })),
     el('span', { class: 'muted small' }, fmtDate(p.created_at.slice(0, 10))),
     p.valid_until ? el('span', { class: 'badge ' + (p.expired ? 'danger' : '') }, (p.expired ? t('credits.expired') : t('credits.valid_until')) + ' ' + fmtDate(p.valid_until)) : null,
@@ -1759,7 +1797,7 @@ function packagesList(packages, coachView) {
       if (await confirmDialog(t('credits.confirm_delete', { n: p.visits }), t('common.delete'), true)) {
         act(() => api('DELETE', '/packages/' + p.id), t('common.saved'));
       }
-    }, 'small ghost danger') : null)));
+    }, 'small ghost danger') : null));
 }
 
 async function accountPopup() {
@@ -1851,6 +1889,7 @@ async function settingsGeneral() {
       num('cancel_cutoff_hours', t('rules.u_hours')),
       num('booking_horizon_days', t('rules.u_days')),
       num('low_credit_threshold', t('rules.u_visits')),
+      num('credit_limit', t('rules.u_visits')),
       h2(t('rules.slots')),
       num('default_slot_minutes', t('common.min')),
       num('default_capacity', t('rules.u_places')),
@@ -2085,10 +2124,11 @@ let swimmerTab = 'overview';
 async function swimmerPopup(id) {
   const [out] = await Promise.all([api('GET', '/users/' + id), loadTemplates()]);
   const u = out.user;
-  const items = [['overview', t('swimmer.overview')], ['visits', t('swimmer.visits')],
+  const items = [['overview', t('swimmer.overview')], ['visits', t('swimmer.visits')], ['cards', t('swimmer.cards')],
     ['comments', t('swimmer.comments') + (out.comments.length ? ' (' + out.comments.length + ')' : '')], ['details', t('swimmers.details')]];
   let body;
   if (swimmerTab === 'visits') body = swimmerVisits(out);
+  else if (swimmerTab === 'cards') body = swimmerCards(out);
   else if (swimmerTab === 'comments') body = swimmerComments(out);
   else if (swimmerTab === 'details') body = await swimmerDetails(out);
   else body = swimmerOverview(out);
@@ -2118,15 +2158,21 @@ function swimmerOverview(out) {
 function swimmerVisits(out) {
   const rows = out.bookings.filter((b) => b.status !== 'cancelled' || b.date >= todayISO());
   return [
-    rows.length ? el('div', { class: 'table-wrap' }, el('table', {}, el('tbody', {}, rows.map((b) => el('tr', {},
+    rows.length ? expandable((tr) => el('div', { class: 'table-wrap' }, el('table', {}, el('tbody', {}, tr))), rows, (b) => el('tr', {},
       el('td', { class: 'nowrap' }, fmtShort(b.date)), el('td', {}, b.start + '–' + b.end, b.member ? el('div', { class: 'small members-tag' }, '👤 ' + b.member) : null,
         visitNotes(b, { who: true })),
       el('td', { class: 'small muted hide-sm' }, [b.title, b.location].filter(Boolean).join(' · ')),
       el('td', {}, byCoach(b) || b.pending ? badge(b.status, b) : statusSelect(b.id, b.status, bookingStarted(b), b.member || out.user.name, b.protected),
         coachAckMarks(b, () => act(() => api('POST', '/bookings/' + b.id + '/resolve'), t('ack.resolved'))),
-        (b.history || []).length ? historyList(b.history) : null))))))
+        (b.history || []).length ? historyList(b.history) : null)))
       : el('p', { class: 'muted' }, t('visits.none_history')),
-    h2(t('visits.packages')),
+  ];
+}
+
+function swimmerCards(out) {
+  return [
+    creditsBar(out.balance),
+    el('div', { class: 'row', style: 'margin:.5rem 0' }, quickPackageButton(out.user)),
     packagesList(out.balance.packages, true),
   ];
 }

@@ -8,6 +8,7 @@ COACH_SETTINGS = {
     "cancel_cutoff_hours": (0, 168),
     "booking_horizon_days": (1, 180),
     "low_credit_threshold": (0, 20),
+    "credit_limit": (0, 20),            # visits a swimmer may book with no visits left
     "default_slot_minutes": (15, 240),
     "default_capacity": (1, None),      # upper bound is config max_capacity
     "swimmers_can_book": bool,
@@ -26,6 +27,7 @@ def defaults():
         "cancel_cutoff_hours": c["cancel_cutoff_hours"],
         "booking_horizon_days": c["booking_horizon_days"],
         "low_credit_threshold": c["low_credit_threshold"],
+        "credit_limit": c["credit_limit"],
         "default_slot_minutes": c["default_slot_minutes"],
         "default_capacity": c["max_capacity"],
         "swimmers_can_book": True,

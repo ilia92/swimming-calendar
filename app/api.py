@@ -883,7 +883,7 @@ def _attendee_detail(d, swimmer_id, key, n):
     return {
         "phone": u.get("phone", ""),
         "notes": u.get("notes", ""),
-        "credits": {k: bal[k] for k in ("total", "used", "reserved", "available", "unpaid", "low")},
+        "credits": {k: bal[k] for k in ("total", "card_total", "used", "reserved", "available", "unpaid", "low")},
         "last_comment": next((c for c in comments if c.get("session_key") != key), None),
         "session_comments": [c for c in comments if c.get("session_key") == key],
     }
@@ -1384,7 +1384,8 @@ def _book(d, viewer, swimmer, sess, wanted, force, n, check_window=True):
                 acks.log(b, viewer, "added", to="attended")
         d["bookings"][b["id"]] = b
         made.append(b)
-    if not force and credits.balance(d, swimmer["id"], n)["unpaid"] > unpaid_before:
+    if not force and not credits.within_credit(d, swimmer["id"], unpaid_before,
+                                               credits.balance(d, swimmer["id"], n)["unpaid"]):
         for b in made:
             del d["bookings"][b["id"]]
         raise ApiError(409, "no_credits", "not enough visits left")
