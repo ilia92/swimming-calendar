@@ -28,6 +28,7 @@ DEFAULTS = {
     "ack_window_days": 3,            # swimmers can confirm/dispute a past visit this long; then it locks
     "checkin_early_minutes": 15,     # the coach can check swimmers in this long before the start
     "low_credit_threshold": 2,
+    "credit_limit": 2,               # visits a swimmer may book on credit once their card runs out
     "session_ttl_days": 30,
     "cookie_secure": False,          # set true once served over HTTPS only
     "backup_dir": "../backup_swimming_calendar",

@@ -117,6 +117,7 @@ input:focus, select:focus, textarea:focus, .btn:focus-visible { outline: 2px sol
 .form { display: grid; gap: .7rem; }
 .form.cols { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); align-items: end; }
 .actions { display: flex; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; margin-top: .25rem; }
+.show-more { margin-top: .4rem; }
 
 /* ---------- badges */
 .badge {
@@ -210,6 +211,10 @@ dialog::backdrop { background: rgba(10, 20, 30, .45); }
 }
 .toasts { position: fixed; right: 1rem; bottom: 1rem; display: grid; gap: .5rem; z-index: 50; }
 @media (max-width: 760px) { .toasts { bottom: 4.5rem; left: 1rem; } }
+/* the box is a popover (top layer, above open dialogs): drop the UA popover look */
+.toasts[popover] { inset: auto 1rem 1rem auto; margin: 0; padding: 0; border: 0; background: transparent; overflow: visible; color: inherit; }
+.toasts[popover]:not(:popover-open) { display: none; }
+@media (max-width: 760px) { .toasts[popover] { inset: auto 1rem 4.5rem 1rem; } }
 .toast { background: var(--text); color: var(--bg); padding: .6rem .9rem; border-radius: 8px; box-shadow: var(--shadow); max-width: 360px; }
 .toast.error { background: var(--danger); color: #fff; }
 

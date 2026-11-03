@@ -35,7 +35,8 @@
   "search": "Search…",
   "no_matches": "No matches.",
   "clear": "Clear",
-  "offline": "No connection to the server - retrying…"
+  "offline": "No connection to the server - retrying…",
+  "show_more": "Show {n} more"
  },
  "login": {
   "username": "Username",
@@ -84,7 +85,10 @@
   "valid_until_date": "valid until {date}",
   "n_until": "{n} until {date}",
   "n_no_expiry": "{n} without expiry",
-  "no_expiry": "no expiry"
+  "no_expiry": "no expiry",
+  "left_n": "{left} visits left",
+  "on_credit": "No visits left - you can still book {n} more on credit until the next card.",
+  "on_credit_coach": "can book {n} more on credit"
  },
  "book": {
   "title": "Sessions",
@@ -139,7 +143,9 @@
   "restore_session": "Restore session",
   "search_swimmer": "Search swimmer…",
   "added": "{name} booked",
-  "book_in": "Book"
+  "book_in": "Book",
+  "confirm_no_credits": "{name} has no visits left (credit used up too). Book anyway? The visit will show as unpaid.",
+  "book_anyway": "Book anyway"
  },
  "swimmers": {
   "title": "Swimmers ({n})",
@@ -415,12 +421,14 @@
   "note_label": "📢 Training note (swimmers see it)",
   "note_ph": "e.g. “Today at the Spartak pool, lane 3”",
   "note_banner": "Messages from your coach:",
-  "book_hint_many": "Uses {n} visits ({left} left). You can cancel up to {h}h before the start."
+  "book_hint_many": "Uses {n} visits ({left} left). You can cancel up to {h}h before the start.",
+  "book_hint_credit": "No visits left - this one goes on credit (paid by your next card). You can cancel up to {h}h before the start."
  },
  "swimmer": {
   "overview": "Overview",
   "visits": "Visits",
-  "comments": "Comments"
+  "comments": "Comments",
+  "cards": "Visit cards"
  },
  "comments": {
   "add": "Add comment",
@@ -466,6 +474,8 @@
   "booking_horizon_days_hint": "How many days ahead swimmers can book.",
   "low_credit_threshold": "Warn at",
   "low_credit_threshold_hint": "Show a warning when this many visits or fewer are left.",
+  "credit_limit": "Visits on credit",
+  "credit_limit_hint": "How many visits a swimmer can still book once their card runs out (0 = none). The next card pays them off.",
   "default_slot_minutes": "Slot length",
   "default_slot_minutes_hint": "Default for new slots and availability.",
   "default_capacity": "Places per slot",

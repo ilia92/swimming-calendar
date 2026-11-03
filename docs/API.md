@@ -23,7 +23,7 @@ except `/me`, `/me/password`, `/logout` and `/changes`. `GET /api/v1` lists ever
 | GET | `/me` | user | `{user, settings, today, now}`. `settings` are the effective rules of the user's coach |
 | PATCH | `/me` | user | `{lang?, phone?, email?}`; coach also `{name?}` |
 | POST | `/me/password` | user | `{current_password, new_password}` (min 8 characters) |
-| GET / PUT | `/me/settings` | coach | Per-coach rules: `cancel_cutoff_hours`, `booking_horizon_days`, `low_credit_threshold`, `default_slot_minutes`, `default_capacity`, `swimmers_can_book`, `skip_holidays` |
+| GET / PUT | `/me/settings` | coach | Per-coach rules: `cancel_cutoff_hours`, `booking_horizon_days`, `low_credit_threshold`, `credit_limit`, `default_slot_minutes`, `default_capacity`, `swimmers_can_book`, `skip_holidays` |
 
 ## Users
 
@@ -84,7 +84,7 @@ counts as `attended`.
 
 | Method | Path | Who | Notes |
 |---|---|---|---|
-| GET | `/credits/{swimmer_id}` | self, coach | `{balance: {total, used, reserved, available, unpaid, expired_unused, low, expiry: [{date, remaining}], packages[]}}` |
+| GET | `/credits/{swimmer_id}` | self, coach | `{balance: {total, card_total, credit_limit, used, reserved, available, unpaid, expired_unused, low, expiry: [{date, remaining}], packages[]}}` |
 | GET / POST | `/package-templates` | coach | `{name, visits, valid_days?}` |
 | PATCH / DELETE | `/package-templates/{id}` | coach | |
 | POST | `/packages` | coach | `{swimmer_id, template_id}` or `{swimmer_id, visits, valid_days?, valid_until?, note?}` |

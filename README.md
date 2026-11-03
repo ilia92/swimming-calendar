@@ -152,7 +152,7 @@ coach can override them in the app.
 | `max_capacity` | 8 | hard maximum of swimmers per slot |
 | `max_members` | 3 | people on a joint account |
 | `window_months` | 3 | a repeating slot without an end date runs this many months from its start |
-| `cancel_cutoff_hours`, `booking_horizon_days`, `low_credit_threshold`, `default_slot_minutes` | 12, 28, 2, 45 | defaults for each coach's rules |
+| `cancel_cutoff_hours`, `booking_horizon_days`, `low_credit_threshold`, `credit_limit`, `default_slot_minutes` | 12, 28, 2, 2, 45 | defaults for each coach's rules |
 | `cookie_secure` | false | set `true` once served over HTTPS only |
 | `backup_dir`, `backup_keep` | ../backup_swimming_calendar, 1000 | |
 | `notifiers.email` | disabled | placeholder for e-mailed reports |
