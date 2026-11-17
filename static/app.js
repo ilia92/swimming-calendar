@@ -243,12 +243,39 @@ function combo({ items, placeholder, label, row, text, onChoose, selected }) {
   };
   const choose = (x) => { current = x; setLabel(); close(); if (onChoose) onChoose(x); };
   const outside = (ev) => { if (!wrap.isConnected) document.removeEventListener('pointerdown', outside, true); else if (!wrap.contains(ev.target)) close(); };
-  function close() { open = false; wrap.classList.remove('open'); document.removeEventListener('pointerdown', outside, true); }
+  // Fit the list into what is actually visible (the on-screen keyboard shrinks the visual viewport).
+  // Near the bottom of the page there is no room below the trigger, so pad the page and scroll the
+  // trigger up to the top of the visible area. Dialogs lay the popup out in place, so skip them.
+  const vv = window.visualViewport;
+  const fit = () => {
+    if (!open || wrap.closest('dialog')) return;
+    const bar = document.querySelector('.topbar');   // sticky - don't scroll the picker under it
+    const visTop = () => Math.max(vv ? vv.offsetTop : 0, bar ? bar.getBoundingClientRect().bottom : 0);
+    const nav = document.querySelector('.nav');      // fixed at the bottom on phones - covers the list too
+    const visBottom = () => {
+      const b = vv ? vv.offsetTop + vv.height : innerHeight;
+      return nav && getComputedStyle(nav).position === 'fixed' ? Math.min(b, nav.getBoundingClientRect().top) : b;
+    };
+    const room = () => visBottom() - list.getBoundingClientRect().top - 10;
+    if (room() < 200) {
+      document.body.style.paddingBottom = '80vh';
+      window.scrollBy(0, trigger.getBoundingClientRect().top - visTop() - 8);
+    }
+    list.style.maxHeight = Math.max(120, Math.min(240, room())) + 'px';
+  };
+  function close() {
+    open = false; wrap.classList.remove('open'); document.removeEventListener('pointerdown', outside, true);
+    if (vv) vv.removeEventListener('resize', fit);
+    document.body.style.paddingBottom = ''; list.style.maxHeight = '';
+  }
   trigger.addEventListener('click', () => {
     if (open) return close();
     open = true; wrap.classList.add('open'); filter.value = ''; draw();
     document.addEventListener('pointerdown', outside, true);
-    setTimeout(() => { filter.focus(); pop.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, 0);
+    if (vv) vv.addEventListener('resize', fit);
+    filter.focus();   // synchronously, inside the tap - iOS only raises the keyboard then
+    setTimeout(fit, 0);
+    setTimeout(fit, 400); // the keyboard animates in; some browsers fire no resize for it
   });
   filter.addEventListener('input', draw);
   filter.addEventListener('keydown', (ev) => {
