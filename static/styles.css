@@ -542,6 +542,9 @@ img.avatar { background: var(--surface-2); }
   flex-direction: column; gap: .4rem;
 }
 .combo.open .combo-popup { display: flex; }
+/* lift the card holding an open picker above the cards after it (a faded .done card is its own
+   stacking context and would otherwise trap the popup underneath the next card); stays under the top bar */
+.today-card:has(.combo.open), .agenda-slot:has(.combo.open), .card:has(.combo.open) { position: relative; z-index: 5; opacity: 1; }
 .combo-options { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; overscroll-behavior: contain; }
 .combo-option { padding: .4rem .5rem; border-radius: 8px; cursor: pointer; }
 .combo-option:hover { background: var(--surface-2); }
